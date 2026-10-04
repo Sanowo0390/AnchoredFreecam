@@ -1,4 +1,4 @@
-# Anchored Freecam
+# AnchoredFreecam
 
 Paper/Purpur **26.2**、Java **25** 向けの制限付きサーバー側Freecamプラグインです。
 おそらくGeyser経由のプレイヤーでも問題なく動作します。
@@ -24,14 +24,6 @@ Paper/Purpur **26.2**、Java **25** 向けの制限付きサーバー側Freecam�
 
 `anchoredfreecam.admin` は上記4権限を含みます。
 
-## カスタム言語
-
-初回に `plugins/AnchoredFreecam/lang/ja.yml` と `en.yml` を生成します。
-既存YAMLをコピーして翻訳し、`ru.yml`、`uk.yml`、`de.yml`、`pt_br.yml` など任意のファイルを追加できます。
-言語IDには英小文字・数字・`_`・`-` を使います。メッセージのプレースホルダーは保持してください。
-
-TAB補完は言語ファイルから生成します。不足する翻訳キーは `fallback-language` から補完します。既存のカスタム言語に新規必須キーはありません。
-
 ## TPA / 外部Teleport
 
 - Freecam中の本人が外部の `PLUGIN` / `COMMAND` Teleportを受けると、Freecamを終了してそのTeleportを許可します。0～3マスのTPA/Homeも対象です。
@@ -55,7 +47,6 @@ Java 25とGradle（今回の検証では9.6.1）を用います。
 gradle clean build
 ```
 
-生成物: `build/libs/AnchoredFreecam-1.1.14.jar`
 
 テスト結果: `build/reports/tests/test/index.html`
 
