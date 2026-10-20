@@ -395,12 +395,12 @@ final class FreecamListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onItemHeld(PlayerItemHeldEvent event) {
-        manager.refreshCameraHandNextTick(event.getPlayer());
+        manager.refreshCameraEquipmentNextTick(event.getPlayer());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onInventoryClose(InventoryCloseEvent event) {
-        if (event.getPlayer() instanceof Player player) manager.refreshCameraHandNextTick(player);
+        if (event.getPlayer() instanceof Player player) manager.refreshCameraEquipmentNextTick(player);
     }
 
     private boolean isFreecamActor(org.bukkit.entity.Entity entity) {

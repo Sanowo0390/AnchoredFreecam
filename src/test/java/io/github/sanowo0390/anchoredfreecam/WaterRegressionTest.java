@@ -575,40 +575,61 @@ class WaterRegressionTest {
     }
 
     @Test
-    void handMaskOnlySendsOwnMainHandAndNeverMutatesInventory() {
-        manager.hideCameraHand(player);
-        verify(player).sendEquipmentChange(player, EquipmentSlot.HAND, emptyHand);
+    void equipmentMaskSendsBothHandsAndAllArmorWithoutMutatingInventory() {
+        manager.hideCameraEquipment(player);
+        verify(player).sendEquipmentChange(player, maskedEquipment());
         verify(player, never()).getInventory();
         verify(body, never()).getEquipment();
     }
 
     @Test
-    void hotbarSwitchRestoresPreviousSlotBeforeMaskingCurrentHand() {
+    void hotbarSwitchRestoresPreviousSlotBeforeMaskingHandsAndArmor() {
         listener.onItemHeld(new PlayerItemHeldEvent(player, 0, 1));
         runQueued();
         org.mockito.InOrder order = inOrder(player);
         order.verify(player).updateInventory();
-        order.verify(player).sendEquipmentChange(player, EquipmentSlot.HAND, emptyHand);
+        order.verify(player).sendEquipmentChange(player, maskedEquipment());
         verify(player, never()).getInventory();
     }
 
     @Test
     void stoppingRestoresInventoryAndDiscardsPendingHandMask() {
-        manager.refreshCameraHandNextTick(player);
+        manager.refreshCameraEquipmentNextTick(player);
         manager.stopWithoutReturn(player, false);
         runQueued();
         verify(player).updateInventory();
-        verify(player, never()).sendEquipmentChange(any(), any(EquipmentSlot.class), any(ItemStack.class));
+        verify(player, never()).sendEquipmentChange(any(), anyMap());
     }
 
     @Test
     void staleHandRefreshCannotAffectNewSession() throws Exception {
-        manager.refreshCameraHandNextTick(player);
+        manager.refreshCameraEquipmentNextTick(player);
         manager.stopWithoutReturn(player, false);
         installSession();
         runQueued();
         verify(player, times(1)).updateInventory();
-        verify(player, never()).sendEquipmentChange(any(), any(EquipmentSlot.class), any(ItemStack.class));
+        verify(player, never()).sendEquipmentChange(any(), anyMap());
+    }
+
+    private Map<EquipmentSlot, ItemStack> maskedEquipment() {
+        return Map.of(EquipmentSlot.HAND, emptyHand, EquipmentSlot.OFF_HAND, emptyHand,
+                EquipmentSlot.HEAD, emptyHand, EquipmentSlot.CHEST, emptyHand,
+                EquipmentSlot.LEGS, emptyHand, EquipmentSlot.FEET, emptyHand);
+    }
+
+    @Test
+    void environmentReappliesEntireEquipmentMask() {
+        environment.run();
+        verify(player).sendEquipmentChange(player, maskedEquipment());
+        verify(player, never()).getInventory();
+        verify(body, never()).getEquipment();
+    }
+
+    @Test
+    void inactivePlayerReceivesNoEquipmentMask() {
+        manager.stopWithoutReturn(player, false);
+        manager.hideCameraEquipment(player);
+        verify(player, never()).sendEquipmentChange(any(), anyMap());
     }
 
     private Monster nearbyMonster() {

@@ -187,7 +187,7 @@ final class FreecamManager {
         }
 
         applyCameraVisibility(player);
-        hideCameraHand(player);
+        hideCameraEquipment(player);
 
         if (body != null) {
             retargetCurrentEnemies(player, body);
@@ -372,22 +372,29 @@ final class FreecamManager {
         return null;
     }
 
-    void hideCameraHand(Player player) {
+    void hideCameraEquipment(Player player) {
         if (isActive(player)) {
             // Client-only equipment update: the real inventory and the body's
             // copied equipment remain untouched, including on disconnect/crash.
-            player.sendEquipmentChange(player, EquipmentSlot.HAND, ItemStack.empty());
+            ItemStack empty = ItemStack.empty();
+            player.sendEquipmentChange(player, Map.of(
+                    EquipmentSlot.HAND, empty,
+                    EquipmentSlot.OFF_HAND, empty,
+                    EquipmentSlot.HEAD, empty,
+                    EquipmentSlot.CHEST, empty,
+                    EquipmentSlot.LEGS, empty,
+                    EquipmentSlot.FEET, empty));
         }
     }
 
-    void refreshCameraHandNextTick(Player player) {
+    void refreshCameraEquipmentNextTick(Player player) {
         FreecamSession session = getSession(player);
         if (session == null) return;
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             if (!player.isOnline() || getSession(player) != session) return;
-            // Restore the previously selected slot, then hide the current one.
+            // Restore the previously selected slot, then mask both hands and armor.
             player.updateInventory();
-            hideCameraHand(player);
+            hideCameraEquipment(player);
         });
     }
 
@@ -645,7 +652,7 @@ final class FreecamManager {
             }
 
             player.setFallDistance(0.0F);
-            hideCameraHand(player);
+            hideCameraEquipment(player);
 
             // Survival air belongs to the anchored body, not the moving camera.
             int air = body != null && body.isValid()
