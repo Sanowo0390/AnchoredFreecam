@@ -108,6 +108,27 @@ final class FreecamManager {
                 && session.bodyUuid().equals(entity.getUniqueId());
     }
 
+    boolean isFreecamVehicle(Entity entity) {
+        Set<UUID> visited = new HashSet<>();
+        for (Entity current = entity; current != null && visited.add(current.getUniqueId()); current = current.getVehicle()) {
+            if (current instanceof Player player && isActive(player)) return true;
+            if (bodyOwners.containsKey(current.getUniqueId())) return true;
+        }
+        return false;
+    }
+
+    boolean prepareCarrierForFreecam(Player player) {
+        if (player.isInsideVehicle()) return false;
+        if (!player.getPassengers().isEmpty()) {
+            // Dismount at the physical player BEFORE the session exists or the
+            // camera moves. GSit can resolve the carrier's location here normally.
+            player.eject();
+        }
+        // A cancelled eject / immediate remount must not carry anyone into the
+        // detached camera. Keep the carrier physical and refuse to start instead.
+        return !player.isInsideVehicle() && player.getPassengers().isEmpty();
+    }
+
     double getMaxDistance() {
         if (plugin.getConfig().contains("max-distance-blocks")) {
             return Math.max(0.1D, plugin.getConfig().getDouble("max-distance-blocks", 15.0D));
@@ -123,7 +144,7 @@ final class FreecamManager {
             player.sendMessage(message(messages.text("spectator-denied"), NamedTextColor.RED));
             return false;
         }
-        if (player.isInsideVehicle()) {
+        if (!prepareCarrierForFreecam(player)) {
             player.sendMessage(message(messages.text("vehicle-denied"), NamedTextColor.RED));
             return false;
         }

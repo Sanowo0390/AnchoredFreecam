@@ -19,8 +19,10 @@ import org.bukkit.event.entity.EntityAirChangeEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityToggleSwimEvent;
+import org.bukkit.event.entity.EntityMountEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.event.player.PlayerInteractAtEntityEvent;
 import org.bukkit.event.player.PlayerItemHeldEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.player.PlayerToggleFlightEvent;
@@ -52,6 +54,7 @@ class WaterRegressionTest {
     private AnchoredFreecamPlugin plugin;
     private FreecamManager manager;
     private FreecamListener listener;
+    private Messages messages;
     private Player player;
     private Mannequin body;
     private Server server;
@@ -121,7 +124,7 @@ class WaterRegressionTest {
         when(body.getMaximumAir()).thenReturn(300);
         when(server.getPlayer(player.getUniqueId())).thenReturn(player);
         when(server.getEntity(body.getUniqueId())).thenReturn(body);
-        Messages messages = mock(Messages.class);
+        messages = mock(Messages.class);
         when(messages.text(anyString())).thenReturn("message");
         manager = new FreecamManager(plugin, messages);
         listener = new FreecamListener(plugin, manager);
@@ -882,5 +885,116 @@ class WaterRegressionTest {
         manager.stopWithoutReturn(player, false);
         verify(spider, never()).setTarget(player);
         assertTrue(state("hostileSpiderOwners").isEmpty());
+    }
+
+    @Test
+    void carrierDismountsPassengerBeforeEnablingFreecam() throws Exception {
+        state("sessions").clear();
+        state("bodyOwners").clear();
+        config.set("leave-body-at-anchor", false);
+        Player passenger = mock(Player.class);
+        var passengers = new ArrayList<org.bukkit.entity.Entity>(List.of(passenger));
+        when(player.getPassengers()).thenReturn(passengers);
+        when(messages.text(eq("freecam-enabled"), eq("range"), anyString())).thenReturn("enabled");
+        doAnswer(call -> {
+            assertFalse(manager.isActive(player));
+            assertEquals(bodyLocation, player.getLocation());
+            verify(player, never()).setFlying(true);
+            passengers.clear();
+            return true;
+        }).when(player).eject();
+        assertTrue(manager.start(player));
+        verify(player).eject();
+        assertTrue(manager.isActive(player));
+        verify(player).setFlying(true);
+        verify(passenger, never()).teleport(any(Location.class), any(PlayerTeleportEvent.TeleportCause.class));
+    }
+
+    @Test
+    void failedPassengerEjectionRefusesToStartCamera() throws Exception {
+        state("sessions").clear();
+        when(player.getPassengers()).thenReturn(List.of(mock(Player.class)));
+        when(player.eject()).thenReturn(false);
+        assertFalse(manager.start(player));
+        assertFalse(manager.isActive(player));
+        verify(player, never()).setFlying(true);
+        verify(player, never()).setInvisible(true);
+    }
+
+    @Test
+    void riderStillCannotStartFreecam() throws Exception {
+        state("sessions").clear();
+        when(player.isInsideVehicle()).thenReturn(true);
+        assertFalse(manager.start(player));
+        verify(player, never()).eject();
+        verify(player, never()).setFlying(true);
+    }
+
+    @Test
+    void activeCameraCannotRideNormalPlayerOrSeat() {
+        EntityMountEvent event = new EntityMountEvent(player, mock(Player.class));
+        listener.onMount(event);
+        assertTrue(event.isCancelled());
+        assertTrue(manager.isActive(player));
+    }
+
+    @Test
+    void normalPlayerCannotMountCameraOrBody() {
+        Player passenger = mock(Player.class);
+        when(passenger.getUniqueId()).thenReturn(UUID.randomUUID());
+        for (org.bukkit.entity.Entity mount : new org.bukkit.entity.Entity[]{player, body}) {
+            EntityMountEvent event = new EntityMountEvent(passenger, mount);
+            listener.onMount(event);
+            assertTrue(event.isCancelled());
+        }
+    }
+
+    @Test
+    void nestedSeatOnCameraCannotBeMounted() {
+        org.bukkit.entity.Entity seat = mock(org.bukkit.entity.Entity.class);
+        when(seat.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(seat.getVehicle()).thenReturn(player);
+        Player passenger = mock(Player.class);
+        when(passenger.getUniqueId()).thenReturn(UUID.randomUUID());
+        EntityMountEvent event = new EntityMountEvent(passenger, seat);
+        listener.onMount(event);
+        assertTrue(event.isCancelled());
+    }
+
+    @Test
+    void normalRidingRemainsAllowed() {
+        EntityMountEvent event = new EntityMountEvent(mock(Player.class), mock(Player.class));
+        listener.onMount(event);
+        assertFalse(event.isCancelled());
+    }
+
+    @Test
+    void clickingCameraIsCancelledBeforeRidePluginsRun() {
+        Player passenger = mock(Player.class);
+        when(passenger.getUniqueId()).thenReturn(UUID.randomUUID());
+        PlayerInteractEntityEvent click = new PlayerInteractEntityEvent(passenger, player);
+        listener.onInteractEntity(click);
+        assertTrue(click.isCancelled());
+        PlayerInteractAtEntityEvent clickAt = new PlayerInteractAtEntityEvent(passenger, player, new Vector());
+        listener.onInteractAtEntity(clickAt);
+        assertTrue(clickAt.isCancelled());
+        assertTrue(manager.isActive(player));
+    }
+
+    @Test
+    void activeCameraCannotStartRideByClickingAnotherPlayer() {
+        PlayerInteractEntityEvent event = new PlayerInteractEntityEvent(player, mock(Player.class));
+        listener.onInteractEntity(event);
+        assertTrue(event.isCancelled());
+        assertTrue(manager.isActive(player));
+    }
+
+    @Test
+    void normalPlayerInteractionRemainsAllowed() {
+        Player actor = mock(Player.class);
+        when(actor.getUniqueId()).thenReturn(UUID.randomUUID());
+        PlayerInteractEntityEvent event = new PlayerInteractEntityEvent(actor, mock(Player.class));
+        listener.onInteractEntity(event);
+        assertFalse(event.isCancelled());
     }
 }

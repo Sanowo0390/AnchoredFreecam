@@ -16,6 +16,7 @@ import org.bukkit.event.entity.EntityAirChangeEvent;
 import org.bukkit.event.entity.EntityToggleSwimEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
+import org.bukkit.event.entity.EntityMountEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerAttemptPickupItemEvent;
@@ -320,10 +321,11 @@ final class FreecamListener implements Listener {
         if (manager.isActive(event.getPlayer())) event.setCancelled(true);
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onInteractEntity(PlayerInteractEntityEvent event) {
         Player player = event.getPlayer();
         if (!manager.isActive(player)) {
+            if (manager.isFreecamVehicle(event.getRightClicked())) event.setCancelled(true);
             return;
         }
 
@@ -334,10 +336,11 @@ final class FreecamListener implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onInteractAtEntity(PlayerInteractAtEntityEvent event) {
         Player player = event.getPlayer();
         if (!manager.isActive(player)) {
+            if (manager.isFreecamVehicle(event.getRightClicked())) event.setCancelled(true);
             return;
         }
 
@@ -345,6 +348,15 @@ final class FreecamListener implements Listener {
         if (manager.isOwnBody(player, event.getRightClicked())) {
             manager.trace(player, "own-body-right-click-at");
             manager.stop(player, true, true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onMount(EntityMountEvent event) {
+        if (manager.isFreecamVehicle(event.getEntity()) || manager.isFreecamVehicle(event.getMount())) {
+            // Covers command-driven mounts as well as normal interaction, and
+            // seat entities already attached to a freecam carrier/body.
+            event.setCancelled(true);
         }
     }
 
