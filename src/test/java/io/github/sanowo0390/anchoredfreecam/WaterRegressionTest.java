@@ -12,6 +12,8 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Mannequin;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Monster;
+import org.bukkit.entity.Mob;
+import org.bukkit.entity.Phantom;
 import org.bukkit.entity.Spider;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
@@ -765,6 +767,73 @@ class WaterRegressionTest {
         when(monster.isAware()).thenReturn(true);
         when(body.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of(monster));
         return monster;
+    }
+
+    private Phantom nearbyPhantom() {
+        Phantom phantom = mock(Phantom.class);
+        when(phantom.isValid()).thenReturn(true);
+        when(phantom.isAware()).thenReturn(true);
+        when(body.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of(phantom));
+        return phantom;
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = GameMode.class, names = {"SURVIVAL", "ADVENTURE"})
+    void phantomAcquiresBodyAndReacquiresAfterLosingTarget(GameMode mode) {
+        when(player.getGameMode()).thenReturn(mode);
+        Phantom phantom = nearbyPhantom();
+        assertFalse(phantom instanceof Monster, "Regression: Phantom is outside Monster hierarchy");
+        aggro.run();
+        verify(phantom).setTarget(body);
+        aggro.run();
+        verify(phantom, times(2)).setTarget(body);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = GameMode.class, names = {"CREATIVE", "SPECTATOR"})
+    void creativeAndSpectatorPhantomAggroIsClearedWithoutAcquiringBody(GameMode mode) {
+        when(player.getGameMode()).thenReturn(mode);
+        Phantom phantom = nearbyPhantom();
+        aggro.run();
+        verify(phantom, never()).setTarget(any());
+        when(phantom.getTarget()).thenReturn(body);
+        aggro.run();
+        verify(phantom).setTarget(null);
+        verify(phantom, never()).setTarget(body);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = GameMode.class, names = {"CREATIVE", "SURVIVAL"})
+    void alreadyHostilePhantomIsHandledAtStart(GameMode mode) throws Exception {
+        when(player.getGameMode()).thenReturn(mode);
+        Phantom phantom = nearbyPhantom();
+        when(phantom.getTarget()).thenReturn(player);
+        when(player.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of(phantom));
+        var method = FreecamManager.class.getDeclaredMethod("retargetCurrentEnemies", Player.class, Mannequin.class);
+        method.setAccessible(true);
+        method.invoke(manager, player, body);
+        verify(phantom).setTarget(mode == GameMode.CREATIVE ? null : body);
+    }
+
+    @Test
+    void phantomDoesNotStealAnotherPlayersTargetAndRespectsDisabledAggro() {
+        Phantom phantom = nearbyPhantom();
+        Player other = mock(Player.class);
+        when(phantom.getTarget()).thenReturn(other);
+        aggro.run();
+        verify(phantom, never()).setTarget(any());
+        when(phantom.getTarget()).thenReturn(null);
+        config.set("force-hostile-mob-aggro", false);
+        aggro.run();
+        verify(phantom, never()).setTarget(any());
+    }
+
+    @Test
+    void unrelatedNonMonsterMobsAreNotMadeHostile() {
+        Mob mob = mock(Mob.class);
+        when(body.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of(mob));
+        aggro.run();
+        verify(mob, never()).setTarget(any());
     }
 
     @Test

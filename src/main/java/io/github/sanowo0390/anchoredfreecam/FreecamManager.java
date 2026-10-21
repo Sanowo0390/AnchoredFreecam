@@ -13,7 +13,9 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mannequin;
+import org.bukkit.entity.Mob;
 import org.bukkit.entity.Monster;
+import org.bukkit.entity.Phantom;
 import org.bukkit.entity.PigZombie;
 import org.bukkit.entity.Piglin;
 import org.bukkit.entity.PiglinBrute;
@@ -911,7 +913,8 @@ final class FreecamManager {
 
             Set<UUID> nearbySpiders = new HashSet<>();
             for (Entity entity : body.getNearbyEntities(radius, radius, radius)) {
-                if (!(entity instanceof Monster monster) || !monster.isValid() || !monster.isAware()) {
+                if (!(entity instanceof Mob monster) || !supportsBodyAggro(monster)
+                        || !monster.isValid() || !monster.isAware()) {
                     continue;
                 }
 
@@ -980,7 +983,12 @@ final class FreecamManager {
         }
     }
 
-    private boolean shouldForceTargetBody(Monster monster) {
+    private boolean supportsBodyAggro(Mob mob) {
+        // Paper classifies phantoms as Flying + Enemy, not Monster.
+        return mob instanceof Monster || mob instanceof Phantom;
+    }
+
+    private boolean shouldForceTargetBody(Mob monster) {
         // These mobs are conditionally hostile in vanilla. Do not make them angry
         // just because freecam is enabled; if they were already targeting the
         // player, maintainBodyAggro() still redirects them to the body.
@@ -1005,7 +1013,7 @@ final class FreecamManager {
 
     private void retargetCurrentEnemies(Player player, Mannequin body) {
         for (Entity entity : player.getNearbyEntities(64.0, 64.0, 64.0)) {
-            if (entity instanceof Monster monster && monster.getTarget() == player) {
+            if (entity instanceof Mob monster && supportsBodyAggro(monster) && monster.getTarget() == player) {
                 monster.setTarget(ignoresMobAggro(player) ? null : body);
                 rememberSpiderTarget(monster, monster.getTarget());
             }
