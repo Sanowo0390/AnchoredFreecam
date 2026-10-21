@@ -21,6 +21,8 @@ import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
 import org.bukkit.event.entity.EntityMountEvent;
 import org.bukkit.event.entity.EntityCombustEvent;
 import org.bukkit.event.entity.EntityPortalEnterEvent;
+import org.bukkit.event.entity.EntityPortalEvent;
+import io.papermc.paper.event.entity.EntityPortalReadyEvent;
 import org.bukkit.event.entity.EntityTeleportEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.world.EntitiesLoadEvent;
@@ -184,7 +186,19 @@ final class FreecamListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPortalEnter(EntityPortalEnterEvent event) {
-        if (event.getEntity() instanceof Player player && manager.isActive(player)) event.setCancelled(true);
+        if (manager.isFreecamPortalEntity(event.getEntity())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPortalReady(EntityPortalReadyEvent event) {
+        if (manager.isFreecamPortalEntity(event.getEntity())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBodyPortal(EntityPortalEvent event) {
+        // Mannequins have their own portal processing and do not fire PlayerPortalEvent.
+        // Never allow the physical anchor to change dimensions through a portal.
+        if (manager.isFreecamPortalEntity(event.getEntity())) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)

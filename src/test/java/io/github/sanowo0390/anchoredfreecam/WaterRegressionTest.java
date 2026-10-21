@@ -22,6 +22,9 @@ import org.bukkit.event.entity.EntityToggleSwimEvent;
 import org.bukkit.event.entity.EntityMountEvent;
 import org.bukkit.event.entity.EntityCombustEvent;
 import org.bukkit.event.entity.EntityPortalEnterEvent;
+import org.bukkit.event.entity.EntityPortalEvent;
+import io.papermc.paper.event.entity.EntityPortalReadyEvent;
+import org.bukkit.PortalType;
 import org.bukkit.event.entity.EntityTeleportEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
@@ -1411,6 +1414,70 @@ class WaterRegressionTest {
         listener.onPortal(portal);
         assertTrue(portal.isCancelled());
         assertTrue(manager.isActive(player));
+    }
+
+    @ParameterizedTest
+    @EnumSource(PortalType.class)
+    void bodyPortalEntryAndTransferAreBlockedForEveryPortalType(PortalType type) {
+        World destination = mock(World.class);
+        EntityPortalEnterEvent enter = new EntityPortalEnterEvent(body, bodyLocation.clone(), type);
+        listener.onPortalEnter(enter);
+        assertTrue(enter.isCancelled());
+        EntityPortalReadyEvent ready = new EntityPortalReadyEvent(body, destination, type);
+        listener.onPortalReady(ready);
+        assertTrue(ready.isCancelled());
+        EntityPortalEvent portal = new EntityPortalEvent(body, bodyLocation.clone(),
+                new Location(destination, 0, 64, 0), 128, true, 16, type);
+        listener.onBodyPortal(portal);
+        assertTrue(portal.isCancelled());
+        assertTrue(manager.isActive(player));
+        assertSame(world, session.anchor().getWorld());
+        verify(body, never()).remove();
+    }
+
+    @Test
+    void cameraCannotCompleteAPortalTimerStartedBeforeFreecam() {
+        EntityPortalReadyEvent ready = new EntityPortalReadyEvent(player, mock(World.class), PortalType.NETHER);
+        listener.onPortalReady(ready);
+        assertTrue(ready.isCancelled());
+        assertTrue(manager.isActive(player));
+    }
+
+    @Test
+    void bodyInsideNetherPortalReturnsWithinOriginalWorldOnFirstAndNextSession() throws Exception {
+        for (int cycle = 0; cycle < 2; cycle++) {
+            if (cycle != 0) installSession();
+            camera.setX(10);
+            World nether = mock(World.class);
+            EntityPortalEnterEvent enter = new EntityPortalEnterEvent(body, bodyLocation.clone(), PortalType.NETHER);
+            listener.onPortalEnter(enter);
+            // Model the native branch: only an uncancelled transfer changes the body's world.
+            EntityPortalEvent transfer = new EntityPortalEvent(body, bodyLocation.clone(), new Location(nether, 0, 64, 0));
+            listener.onBodyPortal(transfer);
+            if (!transfer.isCancelled()) bodyLocation = transfer.getTo().clone();
+            assertTrue(enter.isCancelled());
+            assertTrue(transfer.isCancelled());
+            manager.stop(player, true, false);
+            assertSame(world, camera.getWorld());
+            assertEquals(bodyLocation, camera);
+            assertFalse(manager.isActive(player));
+        }
+    }
+
+    @Test
+    void unrelatedMannequinsAndPlayersRetainPortalUse() {
+        for (org.bukkit.entity.Entity entity : List.of(mock(Mannequin.class), mock(Player.class))) {
+            when(entity.getUniqueId()).thenReturn(UUID.randomUUID());
+            EntityPortalEnterEvent enter = new EntityPortalEnterEvent(entity, camera.clone(), PortalType.NETHER);
+            listener.onPortalEnter(enter);
+            assertFalse(enter.isCancelled());
+            EntityPortalReadyEvent ready = new EntityPortalReadyEvent(entity, mock(World.class), PortalType.NETHER);
+            listener.onPortalReady(ready);
+            assertFalse(ready.isCancelled());
+            EntityPortalEvent portal = new EntityPortalEvent(entity, camera.clone(), camera.clone());
+            listener.onBodyPortal(portal);
+            assertFalse(portal.isCancelled());
+        }
     }
 
     @Test

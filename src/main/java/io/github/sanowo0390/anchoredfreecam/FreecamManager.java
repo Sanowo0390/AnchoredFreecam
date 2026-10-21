@@ -117,6 +117,11 @@ final class FreecamManager {
                 && session.bodyUuid().equals(entity.getUniqueId());
     }
 
+    boolean isFreecamPortalEntity(Entity entity) {
+        return (entity instanceof Player player && isActive(player))
+                || bodyOwners.containsKey(entity.getUniqueId());
+    }
+
     boolean isFreecamVehicle(Entity entity) {
         Set<UUID> visited = new HashSet<>();
         for (Entity current = entity; current != null && visited.add(current.getUniqueId()); current = current.getVehicle()) {
