@@ -594,6 +594,7 @@ class WaterRegressionTest {
         verify(player).sendEquipmentChange(player, maskedEquipment());
         verify(player, never()).getInventory();
         verify(body, never()).getEquipment();
+        verify(plugin).maskCameraInventory(player);
     }
 
     @Test
@@ -613,6 +614,7 @@ class WaterRegressionTest {
         runQueued();
         verify(player).updateInventory();
         verify(player, never()).sendEquipmentChange(any(), anyMap());
+        verify(plugin, never()).maskCameraInventory(any());
     }
 
     @Test

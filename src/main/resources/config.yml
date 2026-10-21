@@ -19,6 +19,10 @@ leave-body-at-anchor: true
 # Show the real player's name above the anchored Mannequin body.
 show-body-nameplate: true
 
+# Include the player's contextual LuckPerms prefix in the body nameplate.
+# Falls back to the player name if LuckPerms is absent or has no prefix.
+show-luckperms-prefix: true
+
 # If the body proxy is damaged, immediately end freecam, return the real player
 # to the anchor, then forward that damage to the real player.
 exit-on-body-damage: true

@@ -40,6 +40,7 @@ import java.util.UUID;
 final class FreecamManager {
     private final AnchoredFreecamPlugin plugin;
     private final Messages messages;
+    private final BodyNameplate nameplates;
     private final Map<UUID, FreecamSession> sessions = new HashMap<>();
     private final Map<UUID, UUID> bodyOwners = new HashMap<>();
     private final Map<UUID, UUID> hostileSpiderOwners = new HashMap<>();
@@ -60,6 +61,7 @@ final class FreecamManager {
     FreecamManager(AnchoredFreecamPlugin plugin, Messages messages) {
         this.plugin = plugin;
         this.messages = messages;
+        this.nameplates = new BodyNameplate(plugin);
         this.aggroTask = plugin.getServer().getScheduler().runTaskTimer(
                 plugin,
                 this::maintainBodyAggro,
@@ -412,6 +414,7 @@ final class FreecamManager {
                     EquipmentSlot.CHEST, empty,
                     EquipmentSlot.LEGS, empty,
                     EquipmentSlot.FEET, empty));
+            plugin.maskCameraInventory(player);
         }
     }
 
@@ -625,6 +628,10 @@ final class FreecamManager {
             Mannequin body = getBody(player);
             if (body != null && body.isValid()) {
                 syncAnchorToBody(session);
+                if (environmentTicks % 20 == 0 && plugin.getConfig().getBoolean("show-body-nameplate", true)) {
+                    Component name = nameplates.name(player);
+                    if (!name.equals(body.customName())) body.customName(name);
+                }
 
                 // A body in water retains native current/buoyancy physics. Only
                 // a dry grounded body is anchored; falling into water stays physical.
@@ -975,7 +982,7 @@ final class FreecamManager {
             // description line (e.g. "NPC") under the name.
             mannequin.setDescription(null);
             if (plugin.getConfig().getBoolean("show-body-nameplate", true)) {
-                mannequin.customName(Component.text(player.getName()));
+                mannequin.customName(nameplates.name(player));
                 mannequin.setCustomNameVisible(true);
             }
 

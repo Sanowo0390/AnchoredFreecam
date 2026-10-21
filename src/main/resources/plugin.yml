@@ -2,6 +2,7 @@ name: AnchoredFreecam
 version: '${version}'
 main: io.github.sanowo0390.anchoredfreecam.AnchoredFreecamPlugin
 api-version: '26.2'
+softdepend: [LuckPerms]
 author: Sanowo0390
 description: Server-side anchored freecam for survival servers, with a damageable body proxy.
 website: https://github.com/Sanowo0390/Anchored-Freecam
