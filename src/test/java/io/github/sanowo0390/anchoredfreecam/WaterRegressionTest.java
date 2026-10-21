@@ -20,6 +20,17 @@ import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityToggleSwimEvent;
 import org.bukkit.event.entity.EntityMountEvent;
+import org.bukkit.event.entity.ProjectileLaunchEvent;
+import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.entity.EntityShootBowEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerAttemptPickupItemEvent;
+import org.bukkit.event.block.Action;
+import org.bukkit.block.BlockFace;
+import org.bukkit.event.Event;
+import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.entity.Item;
+import com.destroystokyo.paper.event.player.PlayerLaunchProjectileEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractAtEntityEvent;
@@ -996,5 +1007,236 @@ class WaterRegressionTest {
         PlayerInteractEntityEvent event = new PlayerInteractEntityEvent(actor, mock(Player.class));
         listener.onInteractEntity(event);
         assertFalse(event.isCancelled());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = EquipmentSlot.class, names = {"HAND", "OFF_HAND"})
+    void preCancelledAirClickStillDeniesWindChargeUseInBothHands(EquipmentSlot hand) {
+        ItemStack charge = mock(ItemStack.class);
+        when(charge.getType()).thenReturn(Material.WIND_CHARGE);
+        PlayerInteractEvent event = new PlayerInteractEvent(player, Action.RIGHT_CLICK_AIR, charge,
+                null, BlockFace.SELF, hand);
+        event.setUseInteractedBlock(Event.Result.DENY);
+        event.setUseItemInHand(Event.Result.DEFAULT);
+        assertTrue(event.isCancelled());
+        listener.onInteract(event);
+        assertEquals(Event.Result.DENY, event.useItemInHand());
+        assertEquals(Event.Result.DENY, event.useInteractedBlock());
+    }
+
+    @Test
+    void itemUseIsDeniedEarlyAndAgainAfterAnotherHandlerAllowsIt() {
+        PlayerInteractEvent event = new PlayerInteractEvent(player, Action.RIGHT_CLICK_BLOCK,
+                mock(ItemStack.class), block, BlockFace.UP, EquipmentSlot.HAND);
+        listener.onInteractEarly(event);
+        assertEquals(Event.Result.DENY, event.useItemInHand());
+        event.setUseItemInHand(Event.Result.ALLOW);
+        listener.onInteract(event);
+        assertEquals(Event.Result.DENY, event.useItemInHand());
+    }
+
+    @Test
+    void playerLaunchPreventsProjectileAndItemConsumption() {
+        PlayerLaunchProjectileEvent event = new PlayerLaunchProjectileEvent(player, mock(ItemStack.class),
+                mock(org.bukkit.entity.WindCharge.class));
+        listener.onPlayerLaunch(event);
+        assertTrue(event.isCancelled());
+        assertFalse(event.shouldConsume());
+    }
+
+    @Test
+    void genericProjectileLaunchFromActiveCameraIsCancelled() {
+        org.bukkit.entity.WindCharge charge = mock(org.bukkit.entity.WindCharge.class);
+        when(charge.getShooter()).thenReturn(player);
+        ProjectileLaunchEvent event = new ProjectileLaunchEvent(charge);
+        listener.onProjectileLaunch(event);
+        assertTrue(event.isCancelled());
+    }
+
+    @Test
+    void bowUseCannotConsumeAmmoOrLaunchDuringFreecam() {
+        EntityShootBowEvent event = new EntityShootBowEvent(player, mock(ItemStack.class), mock(ItemStack.class),
+                mock(org.bukkit.entity.Projectile.class), EquipmentSlot.HAND, 1f, true);
+        listener.onShootBow(event);
+        assertTrue(event.isCancelled());
+        assertFalse(event.shouldConsumeItem());
+    }
+
+    @Test
+    void normalPlayerCanStillUseItemsAndLaunchProjectiles() {
+        Player normal = mock(Player.class);
+        when(normal.getUniqueId()).thenReturn(UUID.randomUUID());
+        PlayerInteractEvent click = new PlayerInteractEvent(normal, Action.RIGHT_CLICK_AIR,
+                mock(ItemStack.class), null, BlockFace.SELF, EquipmentSlot.HAND);
+        Event.Result original = click.useItemInHand();
+        listener.onInteract(click);
+        assertEquals(original, click.useItemInHand());
+        org.bukkit.entity.WindCharge charge = mock(org.bukkit.entity.WindCharge.class);
+        when(charge.getShooter()).thenReturn(normal);
+        ProjectileLaunchEvent launch = new ProjectileLaunchEvent(charge);
+        listener.onProjectileLaunch(launch);
+        assertFalse(launch.isCancelled());
+    }
+
+    @Test
+    void usingItemStateIsClearedWhileFreecamContinues() {
+        when(player.hasActiveItem()).thenReturn(true);
+        environment.run();
+        verify(player).clearActiveItem();
+    }
+
+    private ItemStack stack(int amount) {
+        ItemStack result = mock(ItemStack.class);
+        var count = new java.util.concurrent.atomic.AtomicInteger(amount);
+        when(result.getAmount()).thenAnswer(call -> count.get());
+        doAnswer(call -> { count.set(call.getArgument(0)); return null; }).when(result).setAmount(anyInt());
+        when(result.getMaxStackSize()).thenReturn(64);
+        when(result.isEmpty()).thenAnswer(call -> count.get() == 0);
+        when(result.isSimilar(any(ItemStack.class))).thenReturn(true);
+        when(result.clone()).thenAnswer(call -> stack(count.get()));
+        return result;
+    }
+
+    private Item bodyDrop(int amount) {
+        Item drop = mock(Item.class);
+        when(drop.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(drop.isValid()).thenReturn(true);
+        doAnswer(call -> { when(drop.isValid()).thenReturn(false); return null; }).when(drop).remove();
+        when(drop.canPlayerPickup()).thenReturn(true);
+        ItemStack contents = stack(amount);
+        when(drop.getItemStack()).thenReturn(contents);
+        when(body.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of(drop));
+        when(player.getCanPickupItems()).thenReturn(true);
+        PlayerInventory inventory = mock(PlayerInventory.class);
+        when(player.getInventory()).thenReturn(inventory);
+        when(inventory.getMaxStackSize()).thenReturn(64);
+        when(inventory.getStorageContents()).thenReturn(new ItemStack[36]);
+        when(inventory.addItem(any(ItemStack.class))).thenReturn(new java.util.HashMap<>());
+        org.bukkit.plugin.PluginManager pluginManager = mock(org.bukkit.plugin.PluginManager.class);
+        when(server.getPluginManager()).thenReturn(pluginManager);
+        doAnswer(call -> {
+            Event event = call.getArgument(0);
+            if (event instanceof PlayerAttemptPickupItemEvent attempt) listener.onAttemptPickup(attempt);
+            if (event instanceof EntityPickupItemEvent pickup) listener.onPickup(pickup);
+            return null;
+        }).when(pluginManager).callEvent(any(Event.class));
+        return drop;
+    }
+
+    @Test
+    void itemsAtBodyGoIntoRealInventoryWhileCameraIsFarAway() {
+        Item drop = bodyDrop(7);
+        camera.setX(12);
+        manager.collectBodyItems(player, body);
+        verify(player.getInventory()).addItem(argThat((ItemStack value) -> value.getAmount() == 7));
+        verify(drop).remove();
+        verify(body).playPickupItemAnimation(drop, 7);
+        verify(player, never()).teleport(any(Location.class), any(PlayerTeleportEvent.TeleportCause.class));
+        assertFalse(manager.isBodyPickup(player, drop));
+    }
+
+    @Test
+    void pickupCanBeCancelledByOtherPluginsWithoutRemovingItem() {
+        Item drop = bodyDrop(5);
+        var pluginManager = server.getPluginManager();
+        doAnswer(call -> {
+            Event event = call.getArgument(0);
+            if (event instanceof EntityPickupItemEvent pickup) pickup.setCancelled(true);
+            return null;
+        }).when(pluginManager).callEvent(any(Event.class));
+        manager.collectBodyItems(player, body);
+        verify(player.getInventory(), never()).addItem(any(ItemStack.class));
+        verify(drop, never()).remove();
+        assertFalse(manager.isBodyPickup(player, drop));
+    }
+
+    @Test
+    void fullInventoryDoesNotDeleteOrChangeDrop() {
+        Item drop = bodyDrop(5);
+        ItemStack[] full = new ItemStack[36];
+        java.util.Arrays.fill(full, stack(64));
+        when(player.getInventory().getStorageContents()).thenReturn(full);
+        manager.collectBodyItems(player, body);
+        verify(player.getInventory(), never()).addItem(any(ItemStack.class));
+        verify(drop, never()).remove();
+        verify(drop, never()).setItemStack(any());
+    }
+
+    @Test
+    void partialPickupLeavesExactRemainderInWorld() {
+        Item drop = bodyDrop(9);
+        ItemStack remainder = stack(4);
+        when(player.getInventory().addItem(any(ItemStack.class))).thenReturn(new java.util.HashMap<>(Map.of(0, remainder)));
+        manager.collectBodyItems(player, body);
+        verify(drop).setItemStack(argThat((ItemStack value) -> value.getAmount() == 4));
+        verify(drop, never()).remove();
+        verify(body).playPickupItemAnimation(drop, 5);
+    }
+
+    @Test
+    void pickupDelayOwnershipAndPlayerPickupFlagAreRespected() {
+        Item drop = bodyDrop(2);
+        when(drop.getPickupDelay()).thenReturn(20);
+        manager.collectBodyItems(player, body);
+        when(drop.getPickupDelay()).thenReturn(0);
+        when(drop.getOwner()).thenReturn(UUID.randomUUID());
+        manager.collectBodyItems(player, body);
+        UUID owner = player.getUniqueId();
+        when(drop.getOwner()).thenReturn(owner);
+        when(drop.canPlayerPickup()).thenReturn(false);
+        manager.collectBodyItems(player, body);
+        verify(player.getInventory(), never()).addItem(any(ItemStack.class));
+        verify(drop, never()).remove();
+    }
+
+    @Test
+    void nativeCameraPickupIsBlockedOutsideBodyPickupContext() {
+        Item drop = bodyDrop(1);
+        PlayerAttemptPickupItemEvent attempt = new PlayerAttemptPickupItemEvent(player, drop, 0);
+        listener.onAttemptPickup(attempt);
+        assertTrue(attempt.isCancelled());
+        assertFalse(attempt.getFlyAtPlayer());
+        EntityPickupItemEvent pickup = new EntityPickupItemEvent(player, drop, 0);
+        listener.onPickup(pickup);
+        assertTrue(pickup.isCancelled());
+    }
+
+    @Test
+    void endingSessionFromPickupCallbackDoesNotCollectOrLeakContext() {
+        Item drop = bodyDrop(3);
+        var pluginManager = server.getPluginManager();
+        doAnswer(call -> { manager.stopWithoutReturn(player, false); return null; })
+                .when(pluginManager).callEvent(any(Event.class));
+        manager.collectBodyItems(player, body);
+        verify(player.getInventory(), never()).addItem(any(ItemStack.class));
+        verify(drop, never()).remove();
+        assertFalse(manager.isBodyPickup(player, drop));
+    }
+
+    @Test
+    void removedDropCannotBeCollectedAgainOnNextScan() {
+        Item drop = bodyDrop(3);
+        manager.collectBodyItems(player, body);
+        manager.collectBodyItems(player, body);
+        verify(player.getInventory(), times(1)).addItem(any(ItemStack.class));
+        verify(drop, times(1)).remove();
+    }
+
+    @Test
+    void pickupCallbackCannotReenterCollectorOrAllowUnrelatedCameraPickup() {
+        Item drop = bodyDrop(3);
+        Item unrelated = mock(Item.class);
+        when(unrelated.getUniqueId()).thenReturn(UUID.randomUUID());
+        var pluginManager = server.getPluginManager();
+        doAnswer(call -> {
+            manager.collectBodyItems(player, body);
+            EntityPickupItemEvent remotePickup = new EntityPickupItemEvent(player, unrelated, 0);
+            listener.onPickup(remotePickup);
+            assertTrue(remotePickup.isCancelled());
+            return null;
+        }).when(pluginManager).callEvent(any(Event.class));
+        manager.collectBodyItems(player, body);
+        verify(player.getInventory(), times(1)).addItem(any(ItemStack.class));
+        verify(drop, times(1)).remove();
     }
 }

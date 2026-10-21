@@ -10,6 +10,7 @@ import org.bukkit.damage.DamageSource;
 import org.bukkit.entity.CaveSpider;
 import org.bukkit.entity.Enderman;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mannequin;
 import org.bukkit.entity.Monster;
@@ -20,10 +21,13 @@ import org.bukkit.entity.Player;
 import org.bukkit.entity.Spider;
 import org.bukkit.entity.Warden;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.player.PlayerAttemptPickupItemEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 
@@ -39,6 +43,8 @@ final class FreecamManager {
     private final Map<UUID, FreecamSession> sessions = new HashMap<>();
     private final Map<UUID, UUID> bodyOwners = new HashMap<>();
     private final Map<UUID, UUID> hostileSpiderOwners = new HashMap<>();
+    private final Map<UUID, UUID> bodyPickupItems = new HashMap<>();
+    private final Set<UUID> collectingItems = new HashSet<>();
     private final Map<UUID, Location> lastLegalLocations = new HashMap<>();
     private final Set<UUID> internalTeleports = new HashSet<>();
     private final Set<UUID> forwardedBodyDamage = new HashSet<>();
@@ -191,6 +197,7 @@ final class FreecamManager {
         player.setFlying(true);
         player.setGravity(false);
         player.setSwimming(false);
+        player.clearActiveItem();
         player.setFallDistance(0.0F);
 
         // The moving real Player is only the camera. Keep it visually hidden.
@@ -648,7 +655,11 @@ final class FreecamManager {
                 } else {
                     queueBoundaryReturn(player, currentCamera.getYaw(), currentCamera.getPitch());
                 }
+                collectBodyItems(player, body);
             }
+
+            // A pickup listener may end this session while handling its event.
+            if (getSession(player) != session) continue;
 
             // The camera is a detached viewpoint. Keep normal flying active and
             // prevent water/gravity from turning the camera into a physical body.
@@ -662,6 +673,7 @@ final class FreecamManager {
             if (player.isSwimming()) {
                 player.setSwimming(false);
             }
+            if (player.hasActiveItem()) player.clearActiveItem();
 
             // Water must not physically carry the detached camera upward.
             // isInWater() can oscillate at the surface, so also check the feet
@@ -695,6 +707,68 @@ final class FreecamManager {
 
     boolean isSynchronizingAir(Player player) {
         return synchronizingAir.contains(player.getUniqueId());
+    }
+
+    boolean isBodyPickup(Player player, Item item) {
+        return item.getUniqueId().equals(bodyPickupItems.get(player.getUniqueId()));
+    }
+
+    void collectBodyItems(Player player, Mannequin body) {
+        FreecamSession session = getSession(player);
+        if (session == null || !player.getCanPickupItems() || player.getGameMode() == GameMode.SPECTATOR
+                || body == null || !body.isValid() || bodyPickupItems.containsKey(player.getUniqueId())) return;
+        for (Entity entity : body.getNearbyEntities(1.0D, 0.5D, 1.0D)) {
+            if (getSession(player) != session) return;
+            if (!(entity instanceof Item item) || !item.isValid() || item.isDead()
+                    || !item.canPlayerPickup() || item.getPickupDelay() > 0
+                    || item.getOwner() != null && !item.getOwner().equals(player.getUniqueId())) continue;
+            if (!collectingItems.add(item.getUniqueId())) continue;
+            try {
+                ItemStack original = item.getItemStack().clone();
+                int amount = original.getAmount();
+                if (amount <= 0) continue;
+                PlayerInventory inventory = player.getInventory();
+                int capacity = pickupCapacity(inventory, original);
+                if (capacity <= 0) continue;
+                int remaining = Math.max(0, amount - capacity);
+                bodyPickupItems.put(player.getUniqueId(), item.getUniqueId());
+                PlayerAttemptPickupItemEvent attempt = new PlayerAttemptPickupItemEvent(player, item, remaining);
+                attempt.setFlyAtPlayer(false); // The visible collector is the body, never the camera.
+                plugin.getServer().getPluginManager().callEvent(attempt);
+                if (attempt.isCancelled() || getSession(player) != session || !item.isValid()) continue;
+                EntityPickupItemEvent pickup = new EntityPickupItemEvent(player, item, remaining);
+                plugin.getServer().getPluginManager().callEvent(pickup);
+                if (pickup.isCancelled() || getSession(player) != session || !item.isValid()) continue;
+                // Plugins may consume or replace the drop in either callback.
+                ItemStack current = item.getItemStack();
+                if (current.getAmount() != amount || !current.isSimilar(original)) continue;
+                Map<Integer, ItemStack> leftovers = inventory.addItem(original.clone());
+                int left = leftovers.values().stream().mapToInt(ItemStack::getAmount).sum();
+                int picked = amount - left;
+                if (picked <= 0) continue;
+                body.playPickupItemAnimation(item, picked);
+                if (left == 0) item.remove();
+                else {
+                    ItemStack remainder = original.clone();
+                    remainder.setAmount(left);
+                    item.setItemStack(remainder);
+                }
+            } finally {
+                bodyPickupItems.remove(player.getUniqueId(), item.getUniqueId());
+                collectingItems.remove(item.getUniqueId());
+            }
+        }
+    }
+
+    private int pickupCapacity(PlayerInventory inventory, ItemStack incoming) {
+        int available = 0;
+        for (ItemStack slot : inventory.getStorageContents()) {
+            int limit = Math.min(incoming.getMaxStackSize(), inventory.getMaxStackSize());
+            if (slot == null || slot.isEmpty()) available += limit;
+            else if (slot.isSimilar(incoming)) available += Math.max(0, limit - slot.getAmount());
+            if (available >= incoming.getAmount()) return incoming.getAmount();
+        }
+        return available;
     }
 
     void trace(Player player, String reason) {
@@ -981,6 +1055,7 @@ final class FreecamManager {
         lastBoundaryNotice.remove(uuid);
         lastMovementTrace.remove(uuid);
         synchronizingAir.remove(uuid);
+        bodyPickupItems.remove(uuid);
     }
 
     private Component message(String text, NamedTextColor color) {

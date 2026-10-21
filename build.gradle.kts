@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "io.github.sanowo0390"
-version = "1.1.17"
+version = "1.1.18"
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"

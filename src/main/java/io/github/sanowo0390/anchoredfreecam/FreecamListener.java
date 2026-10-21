@@ -1,5 +1,6 @@
 package io.github.sanowo0390.anchoredfreecam;
 
+import com.destroystokyo.paper.event.player.PlayerLaunchProjectileEvent;
 import org.bukkit.Input;
 import org.bukkit.Location;
 import org.bukkit.entity.Mannequin;
@@ -7,6 +8,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
+import org.bukkit.event.Event.Result;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
@@ -17,6 +19,8 @@ import org.bukkit.event.entity.EntityToggleSwimEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
 import org.bukkit.event.entity.EntityMountEvent;
+import org.bukkit.event.entity.ProjectileLaunchEvent;
+import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerAttemptPickupItemEvent;
@@ -28,6 +32,10 @@ import org.bukkit.event.player.PlayerInteractAtEntityEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerItemConsumeEvent;
+import org.bukkit.event.player.PlayerItemDamageEvent;
+import org.bukkit.event.player.PlayerFishEvent;
+import org.bukkit.event.player.PlayerRiptideEvent;
+import org.bukkit.event.player.PlayerBucketEntityEvent;
 import org.bukkit.event.player.PlayerItemHeldEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -316,8 +324,59 @@ final class FreecamListener implements Listener {
         if (manager.isActive(event.getPlayer())) event.setCancelled(true);
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onInteractEarly(PlayerInteractEvent event) {
+        onInteract(event);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onInteract(PlayerInteractEvent event) {
+        if (manager.isActive(event.getPlayer())) {
+            // Air interaction may already deny block use while item use is still
+            // DEFAULT. Never skip that event: explicitly deny both result fields.
+            event.setUseInteractedBlock(Result.DENY);
+            event.setUseItemInHand(Result.DENY);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPlayerLaunch(PlayerLaunchProjectileEvent event) {
+        if (manager.isActive(event.getPlayer())) {
+            event.setShouldConsume(false);
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onProjectileLaunch(ProjectileLaunchEvent event) {
+        if (isFreecamActor(event.getEntity())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onShootBow(EntityShootBowEvent event) {
+        if (event.getEntity() instanceof Player player && manager.isActive(player)) {
+            event.setConsumeItem(false);
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onFish(PlayerFishEvent event) {
+        if (manager.isActive(event.getPlayer())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onRiptide(PlayerRiptideEvent event) {
+        if (manager.isActive(event.getPlayer())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBucketEntity(PlayerBucketEntityEvent event) {
+        if (manager.isActive(event.getPlayer())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onItemDamage(PlayerItemDamageEvent event) {
         if (manager.isActive(event.getPlayer())) event.setCancelled(true);
     }
 
@@ -367,12 +426,16 @@ final class FreecamListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPickup(EntityPickupItemEvent event) {
-        if (event.getEntity() instanceof Player player && manager.isActive(player)) event.setCancelled(true);
+        if (event.getEntity() instanceof Player player && manager.isActive(player)
+                && !manager.isBodyPickup(player, event.getItem())) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onAttemptPickup(PlayerAttemptPickupItemEvent event) {
-        if (manager.isActive(event.getPlayer())) event.setCancelled(true);
+        if (manager.isActive(event.getPlayer()) && !manager.isBodyPickup(event.getPlayer(), event.getItem())) {
+            event.setCancelled(true);
+            event.setFlyAtPlayer(false);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
