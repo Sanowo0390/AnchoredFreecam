@@ -38,6 +38,10 @@ public final class AnchoredFreecamPlugin extends JavaPlugin {
         if (inventoryMask != null) inventoryMask.mask(player);
     }
 
+    void releaseCameraInventory(Player player) {
+        if (inventoryMask != null) inventoryMask.release(player);
+    }
+
     void pauseOwnerPets(Player owner) {
         if (pets != null) pets.pauseOwner(owner);
     }

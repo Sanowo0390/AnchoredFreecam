@@ -49,6 +49,7 @@ final class FreecamManager {
     private final Map<UUID, Location> lastLegalLocations = new HashMap<>();
     private final Set<UUID> internalTeleports = new HashSet<>();
     private final Set<UUID> forwardedBodyDamage = new HashSet<>();
+    private final Map<UUID, EntityDamageEvent> forwardedDamageEvents = new HashMap<>();
     private record CameraCorrection(FreecamSession session, Location destination) {}
     private final Map<UUID, CameraCorrection> pendingCorrections = new HashMap<>();
     private final Set<UUID> synchronizingAir = new HashSet<>();
@@ -325,6 +326,23 @@ final class FreecamManager {
         return forwardedBodyDamage.contains(player.getUniqueId());
     }
 
+    void captureForwardedDamage(EntityDamageEvent event) {
+        if (event.getEntity() instanceof Player player && isForwardedBodyDamage(player)) {
+            forwardedDamageEvents.putIfAbsent(player.getUniqueId(), event);
+        }
+    }
+
+    void finishForwardedDamage(EntityDamageEvent event) {
+        if (!(event.getEntity() instanceof Player player)
+                || forwardedDamageEvents.get(player.getUniqueId()) != event
+                || event.isCancelled() || event.getFinalDamage() <= 0
+                || !isActive(player) || !plugin.getConfig().getBoolean("exit-on-body-damage", true)) return;
+        // MONITOR runs after protection decisions but before native damage/death.
+        // Return first so a lethal hit still happens at the body, including drops.
+        stop(player, true, false);
+        player.sendMessage(message(messages.text("body-damaged"), NamedTextColor.RED));
+    }
+
     void updateLastLegalLocation(Player player, Location location) {
         FreecamSession session = getSession(player);
         if (session == null || location.getWorld() != session.anchor().getWorld()) {
@@ -460,6 +478,8 @@ final class FreecamManager {
         if (ignoresMobAggro(player)) return true;
 
         FreecamSession session = getSession(player);
+        // Do not remove invulnerability that existed before entering Freecam.
+        if (session != null && session.invulnerable()) return true;
         if (session != null) {
             syncAnchorToBody(session);
         }
@@ -477,19 +497,16 @@ final class FreecamManager {
         double damage = event.getDamage();
         DamageSource damageSource = event.getDamageSource();
 
-        if (plugin.getConfig().getBoolean("exit-on-body-damage", true)) {
-            stop(player, true, false);
-            player.sendMessage(message(messages.text("body-damaged"), NamedTextColor.RED));
-            player.damage(damage, damageSource);
-            return true;
-        }
-
         boolean wasInvulnerable = player.isInvulnerable();
+        // Preserve the session until the real player's native damage event has
+        // passed every protection listener. A cancelled hit must not detach the body.
+        if (isForwardedBodyDamage(player)) return true;
         forwardedBodyDamage.add(player.getUniqueId());
         try {
             player.setInvulnerable(false);
             player.damage(damage, damageSource);
         } finally {
+            forwardedDamageEvents.remove(player.getUniqueId());
             forwardedBodyDamage.remove(player.getUniqueId());
             if (player.isOnline() && isActive(player)) {
                 player.setInvulnerable(wasInvulnerable);
@@ -1066,6 +1083,7 @@ final class FreecamManager {
     }
 
     private void restoreState(Player player, FreecamSession session) {
+        plugin.releaseCameraInventory(player);
         restoreVisibility(player);
         player.setInvulnerable(session.invulnerable());
         player.setCollidable(session.collidable());

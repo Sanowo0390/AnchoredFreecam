@@ -144,6 +144,14 @@ class WaterRegressionTest {
         manager = new FreecamManager(plugin, messages);
         listener = new FreecamListener(plugin, manager);
         installSession();
+        doAnswer(call -> {
+            EntityDamageEvent forwarded = mock(EntityDamageEvent.class);
+            when(forwarded.getEntity()).thenReturn(player);
+            when(forwarded.getFinalDamage()).thenReturn((Double) call.getArgument(0));
+            listener.onForwardedDamage(forwarded);
+            listener.onForwardedDamageResult(forwarded);
+            return null;
+        }).when(player).damage(anyDouble(), any(org.bukkit.damage.DamageSource.class));
         when(player.teleport(any(Location.class), eq(PlayerTeleportEvent.TeleportCause.PLUGIN))).thenAnswer(call -> {
             Location target = call.getArgument(0);
             PlayerTeleportEvent event = teleport(target, PlayerTeleportEvent.TeleportCause.PLUGIN);
@@ -590,6 +598,102 @@ class WaterRegressionTest {
         listener.onDamage(hit);
         assertFalse(manager.isActive(player));
         verify(player).damage(3.0, source);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void protectionCancellationPreservesBodyAndSession(boolean exitOnDamage) {
+        config.set("exit-on-body-damage", exitOnDamage);
+        Player attacker = mock(Player.class);
+        org.bukkit.damage.DamageSource source = mock(org.bukkit.damage.DamageSource.class);
+        EntityDamageByEntityEvent hit = mock(EntityDamageByEntityEvent.class);
+        when(hit.getDamager()).thenReturn(attacker);
+        when(hit.getEntity()).thenReturn(body);
+        when(hit.getDamage()).thenReturn(3.0);
+        when(hit.getDamageSource()).thenReturn(source);
+        EntityDamageByEntityEvent forwarded = mock(EntityDamageByEntityEvent.class);
+        when(forwarded.getEntity()).thenReturn(player);
+        when(forwarded.getDamager()).thenReturn(attacker);
+        when(forwarded.isCancelled()).thenReturn(true);
+        when(forwarded.getFinalDamage()).thenReturn(3.0);
+        doAnswer(call -> {
+            assertTrue(manager.isActive(player), "Protection must run before ending Freecam");
+            listener.onForwardedDamage(forwarded);
+            listener.onDamage(forwarded);
+            listener.onForwardedDamageResult(forwarded);
+            return null;
+        }).when(player).damage(3.0, source);
+        listener.onDamage(hit);
+        assertTrue(manager.isActive(player));
+        assertFalse(manager.isForwardedBodyDamage(player));
+        verify(body, never()).remove();
+        verify(player, never()).teleport(any(Location.class), any(PlayerTeleportEvent.TeleportCause.class));
+    }
+
+    @Test
+    void nativeDamageRejectionWithoutEventKeepsFreecam() {
+        EntityDamageEvent hit = mock(EntityDamageEvent.class);
+        org.bukkit.damage.DamageSource source = mock(org.bukkit.damage.DamageSource.class);
+        when(hit.getEntity()).thenReturn(body);
+        when(hit.getDamage()).thenReturn(3.0);
+        when(hit.getDamageSource()).thenReturn(source);
+        doNothing().when(player).damage(3.0, source);
+        manager.handleBodyDamage(hit);
+        assertTrue(manager.isActive(player));
+        verify(body, never()).remove();
+    }
+
+    @Test
+    void allowedLethalHitReturnsBeforeNativeDamageContinues() {
+        org.bukkit.damage.DamageSource source = mock(org.bukkit.damage.DamageSource.class);
+        EntityDamageEvent hit = mock(EntityDamageEvent.class);
+        when(hit.getEntity()).thenReturn(body);
+        when(hit.getDamage()).thenReturn(100.0);
+        when(hit.getDamageSource()).thenReturn(source);
+        camera.setX(10);
+        doAnswer(call -> {
+            EntityDamageEvent forwarded = mock(EntityDamageEvent.class);
+            when(forwarded.getEntity()).thenReturn(player);
+            when(forwarded.getFinalDamage()).thenReturn(100.0);
+            listener.onForwardedDamage(forwarded);
+            assertTrue(manager.isActive(player));
+            listener.onForwardedDamageResult(forwarded);
+            assertFalse(manager.isActive(player));
+            assertEquals(bodyLocation, camera, "Native damage must continue at the body");
+            return null;
+        }).when(player).damage(100.0, source);
+        manager.handleBodyDamage(hit);
+    }
+
+    @Test
+    void preexistingInvulnerabilityIsNotBypassed() throws Exception {
+        session = new FreecamSession(bodyLocation.clone(), body.getUniqueId(), false, false,
+                true, true, false, true, false, true, 300, 0, false, 0, 0);
+        state("sessions").put(player.getUniqueId(), session);
+        EntityDamageEvent hit = mock(EntityDamageEvent.class);
+        when(hit.getEntity()).thenReturn(body);
+        manager.handleBodyDamage(hit);
+        assertTrue(manager.isActive(player));
+        verify(player, never()).damage(anyDouble(), any(org.bukkit.damage.DamageSource.class));
+    }
+
+    @Test
+    void zeroDamageAfterProtectionDoesNotEndFreecam() {
+        org.bukkit.damage.DamageSource source = mock(org.bukkit.damage.DamageSource.class);
+        EntityDamageEvent hit = mock(EntityDamageEvent.class);
+        when(hit.getEntity()).thenReturn(body);
+        when(hit.getDamage()).thenReturn(3.0);
+        when(hit.getDamageSource()).thenReturn(source);
+        doAnswer(call -> {
+            EntityDamageEvent forwarded = mock(EntityDamageEvent.class);
+            when(forwarded.getEntity()).thenReturn(player);
+            listener.onForwardedDamage(forwarded);
+            listener.onForwardedDamageResult(forwarded);
+            return null;
+        }).when(player).damage(3.0, source);
+        manager.handleBodyDamage(hit);
+        assertTrue(manager.isActive(player));
+        verify(body, never()).remove();
     }
 
     @Test

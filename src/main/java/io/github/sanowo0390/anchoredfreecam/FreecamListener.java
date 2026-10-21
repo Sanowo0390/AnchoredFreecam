@@ -311,6 +311,16 @@ final class FreecamListener implements Listener {
         });
     }
 
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onForwardedDamage(EntityDamageEvent event) {
+        manager.captureForwardedDamage(event);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onForwardedDamageResult(EntityDamageEvent event) {
+        manager.finishForwardedDamage(event);
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDamage(EntityDamageEvent event) {
         // EntityDamageByEntityEvent also reaches this handler. Reject camera
