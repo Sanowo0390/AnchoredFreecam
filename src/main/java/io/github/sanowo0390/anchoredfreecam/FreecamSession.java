@@ -17,6 +17,8 @@ record FreecamSession(
         boolean gravity,
         int remainingAir,
         float fallDistance,
-        boolean bodyHovering
+        boolean bodyHovering,
+        int fireTicks,
+        int freezeTicks
 ) {
 }

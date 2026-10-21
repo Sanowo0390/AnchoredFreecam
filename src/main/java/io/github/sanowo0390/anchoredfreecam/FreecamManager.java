@@ -183,7 +183,9 @@ final class FreecamManager {
                 player.hasGravity(),
                 player.getRemainingAir(),
                 player.getFallDistance(),
-                shouldHoverBody(player)
+                shouldHoverBody(player),
+                player.getFireTicks(),
+                player.getFreezeTicks()
         );
         sessions.put(player.getUniqueId(), session);
         lastLegalLocations.put(player.getUniqueId(), anchor.clone());
@@ -201,6 +203,9 @@ final class FreecamManager {
         player.setSwimming(false);
         player.clearActiveItem();
         player.setFallDistance(0.0F);
+        player.setFireTicks(0);
+        player.setFreezeTicks(0);
+        plugin.pauseOwnerPets(player);
 
         // The moving real Player is only the camera. Keep it visually hidden.
         // Mob hostility is maintained against the anchored Mannequin separately.
@@ -242,6 +247,7 @@ final class FreecamManager {
 
         Mannequin body = getBody(session);
         int finalAir = getBodyAir(session);
+        BodyEnvironment finalEnvironment = getBodyEnvironment(session);
         Location returnLocation = body != null && body.isValid()
                 ? body.getLocation().clone()
                 : session.anchor().clone();
@@ -269,6 +275,8 @@ final class FreecamManager {
         restoreState(player, session);
         releaseSpiderTargets(player, session, returned);
         player.setRemainingAir(finalAir);
+        restoreBodyEnvironment(player, finalEnvironment);
+        plugin.restoreOwnerPets(player.getUniqueId());
         if (returnToAnchor && bodyPhysical) {
             player.setFallDistance(bodyFallDistance);
             player.setVelocity(bodyVelocity);
@@ -296,10 +304,13 @@ final class FreecamManager {
 
         syncAnchorToBody(session);
         int finalAir = getBodyAir(session);
+        BodyEnvironment finalEnvironment = getBodyEnvironment(session);
         removeBody(session);
         restoreState(player, session);
         releaseSpiderTargets(player, session, false);
         player.setRemainingAir(finalAir);
+        restoreBodyEnvironment(player, finalEnvironment);
+        plugin.restoreOwnerPets(player.getUniqueId());
 
         if (sendMessage && player.isOnline()) {
             player.sendMessage(message(messages.text("freecam-disabled"), NamedTextColor.YELLOW));
@@ -608,6 +619,7 @@ final class FreecamManager {
                 clearTransientState(uuid);
                 if (session != null) {
                     removeBody(session);
+                    plugin.restoreOwnerPets(uuid);
                 }
             }
         }
@@ -692,6 +704,9 @@ final class FreecamManager {
             }
 
             player.setFallDistance(0.0F);
+            player.setFireTicks(0);
+            player.setFreezeTicks(0);
+            if (environmentTicks % 20 == 0) plugin.pauseOwnerPets(player);
             hideCameraEquipment(player);
 
             // Survival air belongs to the anchored body, not the moving camera.
@@ -837,6 +852,20 @@ final class FreecamManager {
         }
 
         return session.remainingAir();
+    }
+
+    private record BodyEnvironment(int fireTicks, int freezeTicks) {}
+
+    private BodyEnvironment getBodyEnvironment(FreecamSession session) {
+        Mannequin body = getBody(session);
+        return body != null && body.isValid()
+                ? new BodyEnvironment(body.getFireTicks(), body.getFreezeTicks())
+                : new BodyEnvironment(session.fireTicks(), session.freezeTicks());
+    }
+
+    private void restoreBodyEnvironment(Player player, BodyEnvironment state) {
+        player.setFireTicks(state.fireTicks());
+        player.setFreezeTicks(state.freezeTicks());
     }
 
     private void maintainBodyAggro() {
@@ -1003,6 +1032,8 @@ final class FreecamManager {
             mannequin.setAbsorptionAmount(player.getAbsorptionAmount());
             mannequin.setMaximumAir(player.getMaximumAir());
             mannequin.setRemainingAir(player.getRemainingAir());
+            mannequin.setFireTicks(player.getFireTicks());
+            mannequin.setFreezeTicks(player.getFreezeTicks());
             // Preserve starting breathing / slow-falling effects on the physical
             // body as well as its equipment. Native duration ticking remains active.
             mannequin.addPotionEffects(player.getActivePotionEffects());

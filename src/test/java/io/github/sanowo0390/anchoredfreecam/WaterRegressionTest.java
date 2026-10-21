@@ -20,6 +20,10 @@ import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityToggleSwimEvent;
 import org.bukkit.event.entity.EntityMountEvent;
+import org.bukkit.event.entity.EntityCombustEvent;
+import org.bukkit.event.entity.EntityPortalEnterEvent;
+import org.bukkit.event.entity.EntityTeleportEvent;
+import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
@@ -165,7 +169,7 @@ class WaterRegressionTest {
 
     private void installSession(boolean hovering) throws Exception {
         session = new FreecamSession(bodyLocation.clone(), body.getUniqueId(), false, false,
-                false, true, false, true, false, true, 300, 0, hovering);
+                false, true, false, true, false, true, 300, 0, hovering, 0, 0);
         state("sessions").put(player.getUniqueId(), session);
         state("bodyOwners").put(body.getUniqueId(), player.getUniqueId());
         state("lastLegalLocations").put(player.getUniqueId(), camera.clone());
@@ -772,7 +776,7 @@ class WaterRegressionTest {
     @Test
     void hoveringExitRestoresCreativeFlightWithoutCameraMomentum() throws Exception {
         session = new FreecamSession(bodyLocation.clone(), body.getUniqueId(), true, true,
-                false, true, false, true, false, true, 300, 0, true);
+                false, true, false, true, false, true, 300, 0, true, 0, 0);
         state("sessions").put(player.getUniqueId(), session);
         when(body.getVelocity()).thenReturn(new Vector(0, -0.8, 0));
         when(body.getFallDistance()).thenReturn(10f);
@@ -1240,5 +1244,95 @@ class WaterRegressionTest {
         manager.collectBodyItems(player, body);
         verify(player.getInventory(), times(1)).addItem(any(ItemStack.class));
         verify(drop, times(1)).remove();
+    }
+
+    @Test
+    void cameraIgnitionIsCancelledButPhysicalBodyIgnitionIsAllowed() {
+        EntityCombustEvent cameraFire = new EntityCombustEvent(player, 8f);
+        listener.onCombust(cameraFire);
+        assertTrue(cameraFire.isCancelled());
+        EntityCombustEvent bodyFire = new EntityCombustEvent(body, 8f);
+        listener.onCombust(bodyFire);
+        assertFalse(bodyFire.isCancelled());
+    }
+
+    @Test
+    void lavaBurningOnCameraDoesNotSurviveReturnToDryBody() {
+        when(player.getFireTicks()).thenReturn(200);
+        when(player.getFreezeTicks()).thenReturn(80);
+        when(body.getFireTicks()).thenReturn(0);
+        when(body.getFreezeTicks()).thenReturn(0);
+        manager.stop(player, true, false);
+        verify(player).setFireTicks(0);
+        verify(player).setFreezeTicks(0);
+        verify(plugin).restoreOwnerPets(player.getUniqueId());
+    }
+
+    @Test
+    void legitimateBodyFireAndFreezingAreRestoredEvenOnExternalTeleport() {
+        when(body.getFireTicks()).thenReturn(90);
+        when(body.getFreezeTicks()).thenReturn(35);
+        manager.stopWithoutReturn(player, false);
+        verify(player).setFireTicks(90);
+        verify(player).setFreezeTicks(35);
+        verify(plugin).restoreOwnerPets(player.getUniqueId());
+    }
+
+    @Test
+    void environmentClearsCameraFireAndFreezeWithoutClearingBody() {
+        environment.run();
+        verify(player).setFireTicks(0);
+        verify(player).setFreezeTicks(0);
+        verify(body, never()).setFireTicks(anyInt());
+        verify(body, never()).setFreezeTicks(anyInt());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PlayerTeleportEvent.TeleportCause.class, names = {"NETHER_PORTAL", "END_PORTAL", "END_GATEWAY"})
+    void cameraPortalTeleportsAreDeniedWithoutEndingSession(PlayerTeleportEvent.TeleportCause cause) {
+        PlayerTeleportEvent event = teleport(new Location(mock(World.class), 0, 70, 0), cause);
+        listener.onTeleport(event);
+        assertTrue(event.isCancelled());
+        listener.onTeleportResult(event);
+        assertTrue(manager.isActive(player));
+        verify(body, never()).remove();
+    }
+
+    @Test
+    void portalEntryAndPortalEventAreBothBlocked() {
+        EntityPortalEnterEvent enter = new EntityPortalEnterEvent(player, camera.clone());
+        listener.onPortalEnter(enter);
+        assertTrue(enter.isCancelled());
+        PlayerPortalEvent portal = new PlayerPortalEvent(player, camera.clone(), new Location(mock(World.class), 0, 64, 0));
+        listener.onPortal(portal);
+        assertTrue(portal.isCancelled());
+        assertTrue(manager.isActive(player));
+    }
+
+    @Test
+    void normalPlayersCanStillIgniteAndUsePortals() {
+        Player normal = mock(Player.class);
+        when(normal.getUniqueId()).thenReturn(UUID.randomUUID());
+        EntityCombustEvent fire = new EntityCombustEvent(normal, 8f);
+        listener.onCombust(fire);
+        assertFalse(fire.isCancelled());
+        EntityPortalEnterEvent enter = new EntityPortalEnterEvent(normal, camera.clone());
+        listener.onPortalEnter(enter);
+        assertFalse(enter.isCancelled());
+        PlayerPortalEvent portal = new PlayerPortalEvent(normal, camera.clone(), new Location(mock(World.class), 0, 64, 0));
+        listener.onPortal(portal);
+        assertFalse(portal.isCancelled());
+    }
+
+    @Test
+    void ownedPetsTeleportIsStoppedButOtherEntitiesAreUnaffected() {
+        org.bukkit.entity.Wolf wolf = mock(org.bukkit.entity.Wolf.class);
+        when(plugin.pausePetIfOwnerFreecam(wolf)).thenReturn(true);
+        EntityTeleportEvent petTeleport = new EntityTeleportEvent(wolf, bodyLocation.clone(), camera.clone());
+        listener.onPetTeleport(petTeleport);
+        assertTrue(petTeleport.isCancelled());
+        EntityTeleportEvent normal = new EntityTeleportEvent(mock(org.bukkit.entity.Entity.class), bodyLocation.clone(), camera.clone());
+        listener.onPetTeleport(normal);
+        assertFalse(normal.isCancelled());
     }
 }

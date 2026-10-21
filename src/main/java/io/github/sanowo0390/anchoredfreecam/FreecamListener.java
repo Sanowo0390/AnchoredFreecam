@@ -19,6 +19,12 @@ import org.bukkit.event.entity.EntityToggleSwimEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
 import org.bukkit.event.entity.EntityMountEvent;
+import org.bukkit.event.entity.EntityCombustEvent;
+import org.bukkit.event.entity.EntityPortalEnterEvent;
+import org.bukkit.event.entity.EntityTeleportEvent;
+import org.bukkit.event.player.PlayerPortalEvent;
+import org.bukkit.event.world.EntitiesLoadEvent;
+import org.bukkit.event.world.EntitiesUnloadEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -120,6 +126,11 @@ final class FreecamListener implements Listener {
         if (to == null || manager.isInternalTeleport(player)) {
             return;
         }
+        if (manager.isActive(player) && isPortalTeleport(event)) {
+            event.setCancelled(true);
+            manager.trace(player, "camera-portal-blocked");
+            return;
+        }
 
         // Generic TPA / teleport-plugin support:
         // if another player is being teleported to a freecam camera position,
@@ -157,6 +168,43 @@ final class FreecamListener implements Listener {
     private boolean isExternalTeleport(PlayerTeleportEvent event) {
         return event.getCause() == PlayerTeleportEvent.TeleportCause.PLUGIN
                 || event.getCause() == PlayerTeleportEvent.TeleportCause.COMMAND;
+    }
+
+    private boolean isPortalTeleport(PlayerTeleportEvent event) {
+        return event instanceof PlayerPortalEvent
+                || event.getCause() == PlayerTeleportEvent.TeleportCause.NETHER_PORTAL
+                || event.getCause() == PlayerTeleportEvent.TeleportCause.END_PORTAL
+                || event.getCause() == PlayerTeleportEvent.TeleportCause.END_GATEWAY;
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPortal(PlayerPortalEvent event) {
+        if (manager.isActive(event.getPlayer())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPortalEnter(EntityPortalEnterEvent event) {
+        if (event.getEntity() instanceof Player player && manager.isActive(player)) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCombust(EntityCombustEvent event) {
+        if (event.getEntity() instanceof Player player && manager.isActive(player)) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPetTeleport(EntityTeleportEvent event) {
+        if (plugin.pausePetIfOwnerFreecam(event.getEntity())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPetChunkLoad(EntitiesLoadEvent event) {
+        for (org.bukkit.entity.Entity entity : event.getEntities()) plugin.pausePetIfOwnerFreecam(entity);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPetChunkUnload(EntitiesUnloadEvent event) {
+        plugin.releasePetsBeforeUnload(event.getEntities());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
