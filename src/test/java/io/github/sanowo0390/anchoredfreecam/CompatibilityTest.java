@@ -66,6 +66,7 @@ class CompatibilityTest {
         assertFalse(defaults.getBoolean("debug-water"));
         YamlConfiguration descriptor = resource("plugin.yml");
         assertEquals("26.2", descriptor.getString("api-version"));
+        assertTrue(descriptor.getStringList("softdepend").contains("MyPet"), "Final interaction guard must register after MyPet");
         for (String node : new String[]{"use", "range", "language", "reload"}) {
             assertTrue(descriptor.getBoolean("permissions.anchoredfreecam.admin.children.anchoredfreecam." + node));
         }

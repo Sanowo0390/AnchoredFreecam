@@ -31,6 +31,7 @@ import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.player.PlayerAttemptPickupItemEvent;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
 import org.bukkit.event.player.PlayerBucketFillEvent;
@@ -482,6 +483,25 @@ final class FreecamListener implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onEntityInteractionResult(PlayerInteractEntityEvent event) {
+        enforceEntityInteractionResult(event);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPreciseEntityInteractionResult(PlayerInteractAtEntityEvent event) {
+        enforceEntityInteractionResult(event);
+    }
+
+    private void enforceEntityInteractionResult(PlayerInteractEntityEvent event) {
+        // MyPet 3.14.3 PlayerListener uncancels owner interactions at MONITOR.
+        // softdepend loads MyPet first, so our final guard runs after that handler
+        // and prevents its native equipment/feed/shear interaction from executing.
+        if (manager.isActive(event.getPlayer()) || manager.isFreecamVehicle(event.getRightClicked())) {
+            event.setCancelled(true);
+        }
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onMount(EntityMountEvent event) {
         if (manager.isFreecamVehicle(event.getEntity()) || manager.isFreecamVehicle(event.getMount())) {
@@ -533,6 +553,26 @@ final class FreecamListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onInventoryClick(InventoryClickEvent event) {
         if (event.getWhoClicked() instanceof Player player && manager.isActive(player)) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onInventoryClickEarly(InventoryClickEvent event) {
+        onInventoryClick(event);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onInventoryDragEarly(InventoryDragEvent event) {
+        onInventoryDrag(event);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onInventoryOpenEarly(InventoryOpenEvent event) {
+        onInventoryOpen(event);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onInventoryOpen(InventoryOpenEvent event) {
+        if (event.getPlayer() instanceof Player player && manager.isActive(player)) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
