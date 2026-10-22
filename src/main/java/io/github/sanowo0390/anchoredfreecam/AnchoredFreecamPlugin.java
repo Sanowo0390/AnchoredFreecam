@@ -31,6 +31,7 @@ public final class AnchoredFreecamPlugin extends JavaPlugin {
         command.setTabCompleter(freecamCommand);
 
         getServer().getPluginManager().registerEvents(new FreecamListener(this, manager), this);
+        getServer().getPluginManager().registerEvents(new TownMenuListener(), this);
         getLogger().info("AnchoredFreecam enabled. Max distance: " + manager.getMaxDistance()
                 + ", language: " + messages.language());
     }

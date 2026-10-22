@@ -169,6 +169,58 @@ final class FreecamManager {
         return guard != null && target != null && guard.isBlocked(player, target);
     }
 
+    private TownyGuard.TownRef manageableTown(Player player, TownyGuard guard) {
+        if (guard == null) {
+            player.sendMessage(message(messages.text("towny-disabled"), NamedTextColor.RED));
+            return null;
+        }
+        TownyGuard.TownRef town = guard.townOf(player);
+        if (town == null) {
+            player.sendMessage(message(messages.text("towny-no-town"), NamedTextColor.RED));
+            return null;
+        }
+        if (!guard.canManage(player)) {
+            player.sendMessage(message(messages.text("towny-not-staff"), NamedTextColor.RED));
+            return null;
+        }
+        return town;
+    }
+
+    void openTownMenu(Player player) {
+        TownyGuard guard = townyGuard();
+        TownyGuard.TownRef town = manageableTown(player, guard);
+        if (town != null) {
+            new TownSettingsMenu(guard, messages, this, town).open(player);
+        }
+    }
+
+    void setTownProtection(Player player, boolean enabled) {
+        TownyGuard guard = townyGuard();
+        TownyGuard.TownRef town = manageableTown(player, guard);
+        if (town == null) {
+            return;
+        }
+        guard.setTownProtected(town.id(), enabled);
+        player.sendMessage(message(
+                messages.text(enabled ? "town-menu-changed-on" : "town-menu-changed-off", "town", town.name()),
+                enabled ? NamedTextColor.GREEN : NamedTextColor.YELLOW));
+        enforceCurrentRange();
+    }
+
+    void showTownProtection(Player player) {
+        TownyGuard guard = townyGuard();
+        TownyGuard.TownRef town = manageableTown(player, guard);
+        if (town == null) {
+            return;
+        }
+        boolean enabled = guard.isTownProtected(town.id());
+        player.sendMessage(message(
+                messages.text("town-status",
+                        "town", town.name(),
+                        "state", messages.text(enabled ? "state-on" : "state-off")),
+                enabled ? NamedTextColor.GREEN : NamedTextColor.GRAY));
+    }
+
     double getMaxDistance() {
         if (plugin.getConfig().contains("max-distance-blocks")) {
             return Math.max(0.1D, plugin.getConfig().getDouble("max-distance-blocks", 15.0D));

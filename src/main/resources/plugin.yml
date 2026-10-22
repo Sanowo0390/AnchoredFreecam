@@ -9,7 +9,7 @@ website: https://github.com/Sanowo0390/Anchored-Freecam
 commands:
   freecam:
     description: AnchoredFreecam commands.
-    usage: /freecam [on|off|toggle|status|range|language|reload]
+    usage: /freecam [on|off|toggle|status|town|range|language|reload]
     aliases: [fc]
 permissions:
   anchoredfreecam.use:
@@ -27,6 +27,9 @@ permissions:
   anchoredfreecam.towny.bypass:
     description: Allows the freecam camera to enter Towny towns without restriction.
     default: false
+  anchoredfreecam.towny.manage:
+    description: Allows opening the Towny town protection menu (/freecam town). Towny Mayor/Assistant rank is still required.
+    default: true
   anchoredfreecam.admin:
     description: Grants all AnchoredFreecam permissions.
     default: op
