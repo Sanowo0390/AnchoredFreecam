@@ -10,6 +10,7 @@ Paper/Purpur **26.2**、Java **25** 向けの制限付きサーバー側Freecam�
 - Freecam中は攻撃・破壊・設置・インタラクト・アイテム操作を禁止します。ブロック衝突は維持します。
 - 自分の本体を右クリックすると終了して本体へ戻ります。
 - 本体へのダメージを本人へ転送します。通常の敵対Monsterは本体へ誘導します。
+- Townyと連携し、保護されたTownへカメラが入れないようにできます。
 
 ## コマンドと権限
 
@@ -22,7 +23,7 @@ Paper/Purpur **26.2**、Java **25** 向けの制限付きサーバー側Freecam�
 | `/freecam language <言語ID>` | `anchoredfreecam.language` |
 | `/freecam reload` | `anchoredfreecam.reload` |
 
-`anchoredfreecam.admin` は上記4権限を含みます。
+`anchoredfreecam.admin` は上記4権限と `anchoredfreecam.towny.bypass` を含みます。
 
 ## TPA / 外部Teleport
 

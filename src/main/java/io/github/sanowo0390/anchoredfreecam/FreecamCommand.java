@@ -46,6 +46,8 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
             plugin.reloadConfig();
             messages.reload();
             manager.refreshVisibility();
+            manager.resetTowny();
+            manager.initTowny();
             manager.enforceCurrentRange();
 
             sender.sendMessage(Component.text(

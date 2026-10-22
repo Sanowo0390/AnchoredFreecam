@@ -20,6 +20,7 @@ public final class AnchoredFreecamPlugin extends JavaPlugin {
         inventoryMask = CameraInventoryMask.forPaper(getLogger());
         manager = new FreecamManager(this, messages);
         pets = new PetController(this, manager::isActive, MyPetCompatibility.install(this, manager::isActive));
+        manager.initTowny();
 
         FreecamCommand freecamCommand = new FreecamCommand(this, manager, messages);
         PluginCommand command = getCommand("freecam");

@@ -62,6 +62,18 @@ redirect-teleports-to-body: true
 teleport-camera-match-radius-blocks: 0.75
 
 
+# Towny integration (soft dependency). Active automatically when Towny is installed.
+# Protected towns cannot be entered by the freecam camera, and freecam cannot be
+# started while standing inside a protected town, unless the player belongs to
+# that town. Like the range limit, camera movement never ends freecam: the move
+# is cancelled and the camera is returned to its last valid position. Players with
+# anchoredfreecam.towny.bypass are not restricted.
+# Each town's Mayor/Assistants can switch their town's protection with /freecam town.
+towny-protection:
+  # Protection state of towns that have never changed their setting.
+  default-protected: true
+
+
 # Log movement/flight/air/body state and the reason freecam ends.
 # Enable temporarily for reproduction, then use /freecam reload.
 debug-water: false

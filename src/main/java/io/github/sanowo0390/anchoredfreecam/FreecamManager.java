@@ -60,6 +60,8 @@ final class FreecamManager {
     private final Map<UUID, Long> lastBoundaryNotice = new HashMap<>();
     private final BukkitTask aggroTask;
     private final BukkitTask environmentTask;
+    private TownyGuard towny;
+    private boolean townyResolved;
 
     FreecamManager(AnchoredFreecamPlugin plugin, Messages messages) {
         this.plugin = plugin;
@@ -145,6 +147,28 @@ final class FreecamManager {
         return !player.isInsideVehicle() && player.getPassengers().isEmpty();
     }
 
+    void initTowny() {
+        townyGuard();
+    }
+
+    private TownyGuard townyGuard() {
+        if (!townyResolved) {
+            townyResolved = true;
+            towny = TownyGuard.create(plugin);
+        }
+        return towny;
+    }
+
+    void resetTowny() {
+        townyResolved = false;
+        towny = null;
+    }
+
+    boolean isTownyBlocked(Player player, Location target) {
+        TownyGuard guard = townyGuard();
+        return guard != null && target != null && guard.isBlocked(player, target);
+    }
+
     double getMaxDistance() {
         if (plugin.getConfig().contains("max-distance-blocks")) {
             return Math.max(0.1D, plugin.getConfig().getDouble("max-distance-blocks", 15.0D));
@@ -158,6 +182,10 @@ final class FreecamManager {
         }
         if (player.getGameMode() == GameMode.SPECTATOR) {
             player.sendMessage(message(messages.text("spectator-denied"), NamedTextColor.RED));
+            return false;
+        }
+        if (isTownyBlocked(player, player.getLocation())) {
+            player.sendMessage(message(messages.text("towny-start-denied"), NamedTextColor.RED));
             return false;
         }
         if (!prepareCarrierForFreecam(player)) {
@@ -357,7 +385,8 @@ final class FreecamManager {
         }
 
         double max = getMaxDistance();
-        if (location.distanceSquared(session.anchor()) <= max * max) {
+        if (location.distanceSquared(session.anchor()) <= max * max
+                && !isTownyBlocked(player, location)) {
             lastLegalLocations.put(player.getUniqueId(), location.clone());
         }
     }
@@ -368,7 +397,8 @@ final class FreecamManager {
         Location safe = player.getLocation();
         double max = getMaxDistance();
         if (safe.getWorld() != session.anchor().getWorld()
-                || safe.distanceSquared(session.anchor()) > max * max) {
+                || safe.distanceSquared(session.anchor()) > max * max
+                || isTownyBlocked(player, safe)) {
             Location last = lastLegalLocations.get(player.getUniqueId());
             if (last != null && last.getWorld() == session.anchor().getWorld()
                     && last.distanceSquared(session.anchor()) <= max * max) safe = last;
@@ -393,6 +423,12 @@ final class FreecamManager {
             if (!player.isOnline() || getSession(player) != session) return;
             syncAnchorToBody(session);
             Location safe = correction.destination().clone();
+            if (isTownyBlocked(player, safe)) {
+                Location origin = session.anchor().clone();
+                origin.setYaw(safe.getYaw());
+                origin.setPitch(safe.getPitch());
+                safe = origin;
+            }
             double max = getMaxDistance();
             if (safe.getWorld() != session.anchor().getWorld()
                     || safe.distanceSquared(session.anchor()) > max * max) {
@@ -606,7 +642,8 @@ final class FreecamManager {
 
             Location current = player.getLocation();
             if (current.getWorld() != session.anchor().getWorld()
-                    || current.distanceSquared(session.anchor()) > maxSquared) {
+                    || current.distanceSquared(session.anchor()) > maxSquared
+                    || isTownyBlocked(player, current)) {
                 boundaryNotice(player);
                 queueBoundaryReturn(player, current.getYaw(), current.getPitch());
             }
@@ -628,6 +665,21 @@ final class FreecamManager {
         player.sendActionBar(Component.text(
                 messages.text("boundary-return", "range", trimDistance(getMaxDistance())),
                 NamedTextColor.RED));
+    }
+
+    void townyNotice(Player player) {
+        if (!plugin.getConfig().getBoolean("show-boundary-message", true)) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long previous = lastBoundaryNotice.getOrDefault(player.getUniqueId(), 0L);
+        if (now - previous < 750L) {
+            return;
+        }
+
+        lastBoundaryNotice.put(player.getUniqueId(), now);
+        player.sendActionBar(Component.text(messages.text("towny-blocked"), NamedTextColor.RED));
     }
 
     void shutdown() {
@@ -658,6 +710,12 @@ final class FreecamManager {
             FreecamSession session = entry.getValue();
 
             if (player == null || !player.isOnline()) {
+                continue;
+            }
+
+            if (isTownyBlocked(player, session.anchor())) {
+                stop(player, true, false);
+                player.sendMessage(message(messages.text("towny-anchor-ended"), NamedTextColor.RED));
                 continue;
             }
 
@@ -692,10 +750,12 @@ final class FreecamManager {
                 // The freecam radius follows the real body while it is falling.
                 double max = getMaxDistance();
                 Location currentCamera = player.getLocation();
-                if (currentCamera.getWorld() == session.anchor().getWorld()
-                        && currentCamera.distanceSquared(session.anchor()) <= max * max) {
+                boolean inRange = currentCamera.getWorld() == session.anchor().getWorld()
+                        && currentCamera.distanceSquared(session.anchor()) <= max * max;
+                if (inRange && !isTownyBlocked(player, currentCamera)) {
                     lastLegalLocations.put(player.getUniqueId(), currentCamera.clone());
                 } else {
+                    if (inRange) townyNotice(player);
                     queueBoundaryReturn(player, currentCamera.getYaw(), currentCamera.getPitch());
                 }
                 collectBodyItems(player, body);
