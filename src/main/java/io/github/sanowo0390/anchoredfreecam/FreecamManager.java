@@ -8,14 +8,18 @@ import org.bukkit.Input;
 import org.bukkit.Location;
 import org.bukkit.damage.DamageSource;
 import org.bukkit.entity.CaveSpider;
+import org.bukkit.entity.AbstractCubeMob;
+import org.bukkit.entity.Enemy;
+import org.bukkit.entity.EnderDragon;
+import org.bukkit.entity.Creaking;
+import org.bukkit.entity.Hoglin;
+import org.bukkit.entity.Rabbit;
 import org.bukkit.entity.Enderman;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mannequin;
 import org.bukkit.entity.Mob;
-import org.bukkit.entity.Monster;
-import org.bukkit.entity.Phantom;
 import org.bukkit.entity.PigZombie;
 import org.bukkit.entity.Piglin;
 import org.bukkit.entity.PiglinBrute;
@@ -45,7 +49,7 @@ final class FreecamManager {
     private final BodyNameplate nameplates;
     private final Map<UUID, FreecamSession> sessions = new HashMap<>();
     private final Map<UUID, UUID> bodyOwners = new HashMap<>();
-    private final Map<UUID, UUID> hostileSpiderOwners = new HashMap<>();
+    private final Map<UUID, UUID> hostileMobOwners = new HashMap<>();
     private final Map<UUID, UUID> bodyPickupItems = new HashMap<>();
     private final Set<UUID> collectingItems = new HashSet<>();
     private final Map<UUID, Location> lastLegalLocations = new HashMap<>();
@@ -268,8 +272,6 @@ final class FreecamManager {
         boolean bodyPhysical = !session.bodyHovering() && body != null && body.isValid()
                 && (!body.isOnGround() || WaterContact.touches(body));
 
-        removeBody(session);
-
         boolean returned = false;
         if (returnToAnchor) {
             internalTeleports.add(player.getUniqueId());
@@ -281,7 +283,10 @@ final class FreecamManager {
         }
 
         restoreState(player, session);
-        releaseSpiderTargets(player, session, returned);
+        // Keep the proxy alive until native Brain/anger references have been
+        // rebound. Removing it first can invalidate the target and lose Warden anger.
+        releaseMobTargets(player, session, returned);
+        removeBody(session);
         player.setRemainingAir(finalAir);
         restoreBodyEnvironment(player, finalEnvironment);
         plugin.restoreOwnerPets(player.getUniqueId());
@@ -315,7 +320,7 @@ final class FreecamManager {
         BodyEnvironment finalEnvironment = getBodyEnvironment(session);
         removeBody(session);
         restoreState(player, session);
-        releaseSpiderTargets(player, session, false);
+        releaseMobTargets(player, session, false);
         player.setRemainingAir(finalAir);
         restoreBodyEnvironment(player, finalEnvironment);
         plugin.restoreOwnerPets(player.getUniqueId());
@@ -648,7 +653,7 @@ final class FreecamManager {
             }
         }
         bodyOwners.clear();
-        hostileSpiderOwners.clear();
+        hostileMobOwners.clear();
     }
 
     private void maintainBodyEnvironment() {
@@ -699,6 +704,14 @@ final class FreecamManager {
                     queueBoundaryReturn(player, currentCamera.getYaw(), currentCamera.getPitch());
                 }
                 collectBodyItems(player, body);
+                if (getSession(player) == session && !ignoresMobAggro(player) && plugin.mobBridge() != null) {
+                    for (Entity nearby : body.getNearbyEntities(4, 4, 4)) {
+                        if (getSession(player) != session) break;
+                        if (nearby instanceof AbstractCubeMob cube && cube.isValid()) {
+                            plugin.mobBridge().contactDamage(cube, body);
+                        }
+                    }
+                }
             }
 
             // A pickup listener may end this session while handling its event.
@@ -894,13 +907,14 @@ final class FreecamManager {
 
     private void maintainBodyAggro() {
         if (!plugin.getConfig().getBoolean("force-hostile-mob-aggro", true)) {
-            hostileSpiderOwners.clear();
+            hostileMobOwners.clear();
             return;
         }
 
         double radius = Math.max(1.0D, plugin.getConfig().getDouble("mob-aggro-radius-blocks", 32.0D));
 
         for (Map.Entry<UUID, FreecamSession> entry : sessions.entrySet()) {
+            FreecamSession session = entry.getValue();
             Player player = plugin.getServer().getPlayer(entry.getKey());
             if (player == null || !player.isOnline()) {
                 continue;
@@ -911,81 +925,97 @@ final class FreecamManager {
                 continue;
             }
 
-            Set<UUID> nearbySpiders = new HashSet<>();
+            Set<UUID> nearbyMobs = new HashSet<>();
             for (Entity entity : body.getNearbyEntities(radius, radius, radius)) {
-                if (!(entity instanceof Mob monster) || !supportsBodyAggro(monster)
-                        || !monster.isValid() || !monster.isAware()) {
+                if (!(entity instanceof Mob monster) || !monster.isValid() || !monster.isAware()) {
                     continue;
                 }
 
                 LivingEntity target = monster.getTarget();
-                if (monster instanceof Spider && !(monster instanceof CaveSpider)) {
-                    nearbySpiders.add(monster.getUniqueId());
-                }
+                nearbyMobs.add(monster.getUniqueId());
 
                 if (ignoresMobAggro(player)) {
-                    hostileSpiderOwners.remove(monster.getUniqueId(), player.getUniqueId());
-                    if (target == body || target == player) monster.setTarget(null);
+                    hostileMobOwners.remove(monster.getUniqueId(), player.getUniqueId());
+                    if (target == body || target == player) setMobTarget(monster, null, player, session);
                     continue;
                 }
 
                 if (target == body) {
-                    rememberSpiderTarget(monster, body);
+                    rememberMobTarget(monster, body);
                     continue;
                 }
 
                 // Do not steal a mob from another legitimate target.
                 if (target != null && target != player) {
-                    hostileSpiderOwners.remove(monster.getUniqueId(), player.getUniqueId());
+                    hostileMobOwners.remove(monster.getUniqueId(), player.getUniqueId());
                     continue;
                 }
 
                 // If the mob was already targeting the real camera Player, always
                 // redirect it to the body, even for normally neutral monsters.
-                boolean rememberedSpider = player.getUniqueId().equals(hostileSpiderOwners.get(monster.getUniqueId()));
-                if (target == player || shouldForceTargetBody(monster) || rememberedSpider) {
-                    monster.setTarget(body);
-                    rememberSpiderTarget(monster, monster.getTarget());
+                boolean remembered = player.getUniqueId().equals(hostileMobOwners.get(monster.getUniqueId()));
+                boolean retainsAnger = remembered && (monster instanceof Spider
+                        || (plugin.mobBridge() != null && plugin.mobBridge().retainsAnger(monster, player.getUniqueId(), session.bodyUuid())));
+                boolean acquire = supportsBodyAggro(monster) && shouldForceTargetBody(monster)
+                        && canAcquireBody(monster, body);
+                if (target == player || retainsAnger || acquire) {
+                    setMobTarget(monster, body, player, session);
+                    rememberMobTarget(monster, monster.getTarget());
+                } else if (remembered) {
+                    hostileMobOwners.remove(monster.getUniqueId(), player.getUniqueId());
                 }
             }
-            hostileSpiderOwners.entrySet().removeIf(record -> record.getValue().equals(player.getUniqueId())
-                    && !nearbySpiders.contains(record.getKey()));
+            hostileMobOwners.entrySet().removeIf(record -> record.getValue().equals(player.getUniqueId())
+                    && !nearbyMobs.contains(record.getKey()));
         }
     }
 
-    void rememberSpiderTarget(Entity entity, LivingEntity target) {
-        if (!(entity instanceof Spider) || entity instanceof CaveSpider || target == null) return;
+    void rememberMobTarget(Entity entity, LivingEntity target) {
+        if (!(entity instanceof Mob) || target == null) return;
         UUID ownerUuid = target instanceof Player player && isActive(player)
                 ? player.getUniqueId() : bodyOwners.get(target.getUniqueId());
         Player owner = ownerUuid == null ? null : plugin.getServer().getPlayer(ownerUuid);
         if (owner != null && isActive(owner) && !ignoresMobAggro(owner)
                 && plugin.getConfig().getBoolean("force-hostile-mob-aggro", true)) {
-            hostileSpiderOwners.put(entity.getUniqueId(), ownerUuid);
+            hostileMobOwners.put(entity.getUniqueId(), ownerUuid);
         } else {
-            hostileSpiderOwners.remove(entity.getUniqueId());
+            hostileMobOwners.remove(entity.getUniqueId());
         }
     }
 
-    private void releaseSpiderTargets(Player player, FreecamSession session, boolean returned) {
+    private void releaseMobTargets(Player player, FreecamSession session, boolean returned) {
         double radius = Math.max(1, plugin.getConfig().getDouble("mob-aggro-radius-blocks", 32));
-        for (Map.Entry<UUID, UUID> record : Map.copyOf(hostileSpiderOwners).entrySet()) {
+        for (Map.Entry<UUID, UUID> record : Map.copyOf(hostileMobOwners).entrySet()) {
             if (!record.getValue().equals(player.getUniqueId())) continue;
-            hostileSpiderOwners.remove(record.getKey());
+            hostileMobOwners.remove(record.getKey());
             if (!returned || ignoresMobAggro(player) || !player.isOnline() || player.isDead()) continue;
             Entity entity = plugin.getServer().getEntity(record.getKey());
-            if (!(entity instanceof Spider spider) || !spider.isValid() || !spider.isAware()) continue;
+            if (!(entity instanceof Mob spider) || !spider.isValid() || !spider.isAware()) continue;
             LivingEntity target = spider.getTarget();
             if (target != null && !target.getUniqueId().equals(session.bodyUuid())) continue;
+            if (target == null && !(spider instanceof Spider)
+                    && !(supportsBodyAggro(spider) && shouldForceTargetBody(spider) && canAcquireBody(spider, player))
+                    && !(plugin.mobBridge() != null && plugin.mobBridge().retainsAnger(spider, player.getUniqueId(), session.bodyUuid()))) continue;
             Location location = spider.getLocation();
             Location restored = player.getLocation();
             if (location.getWorld() == restored.getWorld()
-                    && location.distanceSquared(restored) <= radius * radius) spider.setTarget(player);
+                    && location.distanceSquared(restored) <= radius * radius) setMobTarget(spider, player, player, session);
         }
     }
 
     private boolean supportsBodyAggro(Mob mob) {
-        // Paper classifies phantoms as Flying + Enemy, not Monster.
-        return mob instanceof Monster || mob instanceof Phantom;
+        return mob instanceof Enemy || (mob instanceof Rabbit rabbit && rabbit.getRabbitType() == Rabbit.Type.THE_KILLER_BUNNY);
+    }
+
+    private boolean canAcquireBody(Mob mob, LivingEntity target) {
+        BodyMobBridge bridge = plugin.mobBridge();
+        return bridge != null ? bridge.canAcquire(mob, target) : mob.hasLineOfSight(target);
+    }
+
+    private void setMobTarget(Mob mob, LivingEntity target, Player owner, FreecamSession session) {
+        BodyMobBridge bridge = plugin.mobBridge();
+        if (bridge != null) bridge.retarget(mob, target, owner.getUniqueId(), session.bodyUuid());
+        else mob.setTarget(target);
     }
 
     private boolean shouldForceTargetBody(Mob monster) {
@@ -996,6 +1026,9 @@ final class FreecamManager {
             return false;
         }
         if (monster instanceof Piglin && !(monster instanceof PiglinBrute)) {
+            // Its native nearest-player sensor also checks gold, zombified mobs
+            // and other priorities. Preserve established anger, not a synthetic
+            // permanent anger state that would outlive those conditions.
             return false;
         }
         if (monster instanceof PigZombie) {
@@ -1004,18 +1037,19 @@ final class FreecamManager {
         if (monster instanceof Spider && !(monster instanceof CaveSpider)) {
             return false;
         }
-        if (monster instanceof Warden) {
+        if (monster instanceof Warden || monster instanceof Creaking || monster instanceof EnderDragon) {
             return false;
         }
+        if (monster instanceof Hoglin hoglin && !hoglin.isAdult()) return false;
 
         return true;
     }
 
     private void retargetCurrentEnemies(Player player, Mannequin body) {
         for (Entity entity : player.getNearbyEntities(64.0, 64.0, 64.0)) {
-            if (entity instanceof Mob monster && supportsBodyAggro(monster) && monster.getTarget() == player) {
-                monster.setTarget(ignoresMobAggro(player) ? null : body);
-                rememberSpiderTarget(monster, monster.getTarget());
+            if (entity instanceof Mob monster && monster.getTarget() == player) {
+                setMobTarget(monster, ignoresMobAggro(player) ? null : body, player, getSession(player));
+                rememberMobTarget(monster, monster.getTarget());
             }
         }
     }
@@ -1023,6 +1057,7 @@ final class FreecamManager {
     private Mannequin spawnBody(Player player, Location anchor) {
         Mannequin body = player.getWorld().spawn(anchor, Mannequin.class, mannequin -> {
             mannequin.setProfile(ResolvableProfile.resolvableProfile(player.getPlayerProfile()));
+            mannequin.setInvisible(player.isInvisible());
             mannequin.setMainHand(player.getMainHand());
 
             boolean airborne = !shouldHoverBody(player)
@@ -1032,7 +1067,7 @@ final class FreecamManager {
             mannequin.setAI(false);
             mannequin.setCanPickupItems(false);
             mannequin.setCollidable(true);
-            mannequin.setInvulnerable(ignoresMobAggro(player));
+            mannequin.setInvulnerable(ignoresMobAggro(player) || player.isInvulnerable());
             mannequin.setPersistent(false);
             mannequin.setRemoveWhenFarAway(false);
             mannequin.setSilent(true);

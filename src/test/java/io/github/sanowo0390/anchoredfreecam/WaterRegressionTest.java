@@ -14,6 +14,10 @@ import org.bukkit.entity.Player;
 import org.bukkit.entity.Monster;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Phantom;
+import org.bukkit.entity.AbstractCubeMob;
+import org.bukkit.entity.Piglin;
+import org.bukkit.entity.Hoglin;
+import org.bukkit.event.world.GenericGameEvent;
 import org.bukkit.entity.Spider;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
@@ -765,6 +769,7 @@ class WaterRegressionTest {
         Monster monster = mock(Monster.class);
         when(monster.isValid()).thenReturn(true);
         when(monster.isAware()).thenReturn(true);
+        when(monster.hasLineOfSight(body)).thenReturn(true);
         when(body.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of(monster));
         return monster;
     }
@@ -773,8 +778,160 @@ class WaterRegressionTest {
         Phantom phantom = mock(Phantom.class);
         when(phantom.isValid()).thenReturn(true);
         when(phantom.isAware()).thenReturn(true);
+        when(phantom.hasLineOfSight(body)).thenReturn(true);
         when(body.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of(phantom));
         return phantom;
+    }
+
+    private Mob nearbyTrackedMob(String kind, LivingEntity initialTarget) throws Exception {
+        Mob mob = (Mob) mock(Class.forName("org.bukkit.entity." + kind));
+        when(mob.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(mob.isValid()).thenReturn(true);
+        when(mob.isAware()).thenReturn(true);
+        when(mob.hasLineOfSight(any(org.bukkit.entity.Entity.class))).thenReturn(true);
+        when(mob.getLocation()).thenAnswer(call -> bodyLocation.clone().add(2, 0, 0));
+        var target = new java.util.concurrent.atomic.AtomicReference<>(initialTarget);
+        when(mob.getTarget()).thenAnswer(call -> target.get());
+        doAnswer(call -> { target.set(call.getArgument(0)); return null; }).when(mob).setTarget(any());
+        when(body.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of(mob));
+        when(player.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of(mob));
+        when(server.getEntity(mob.getUniqueId())).thenReturn(mob);
+        return mob;
+    }
+
+    private BodyMobBridge mockedMobBridge() {
+        BodyMobBridge bridge = mock(BodyMobBridge.class);
+        when(plugin.mobBridge()).thenReturn(bridge);
+        when(bridge.canAcquire(any(), any())).thenReturn(true);
+        when(bridge.retarget(any(), any(), any(), any())).thenAnswer(call -> {
+            ((Mob) call.getArgument(0)).setTarget(call.getArgument(1));
+            return true;
+        });
+        return bridge;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Ghast", "Slime", "MagmaCube", "Shulker", "Hoglin", "CaveSpider"})
+    void nonMonsterEnemiesAcquireAndReacquireBody(String kind) throws Exception {
+        Mob mob = nearbyTrackedMob(kind, null);
+        if (mob instanceof Hoglin hoglin) when(hoglin.isAdult()).thenReturn(true);
+        aggro.run();
+        assertSame(body, mob.getTarget());
+        mob.setTarget(null);
+        aggro.run();
+        assertSame(body, mob.getTarget());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Wolf", "Bee", "IronGolem", "PolarBear", "Enderman", "PigZombie", "Warden", "Piglin"})
+    void existingNeutralAggroSurvivesTargetLossButExpiresWithNativeAnger(String kind) throws Exception {
+        Mob mob = nearbyTrackedMob(kind, player);
+        BodyMobBridge bridge = mockedMobBridge();
+        when(bridge.retainsAnger(mob, player.getUniqueId(), body.getUniqueId())).thenReturn(true);
+        aggro.run();
+        assertSame(body, mob.getTarget());
+        mob.setTarget(null);
+        aggro.run();
+        assertSame(body, mob.getTarget());
+        when(bridge.retainsAnger(mob, player.getUniqueId(), body.getUniqueId())).thenReturn(false);
+        mob.setTarget(null);
+        aggro.run();
+        assertNull(mob.getTarget());
+        assertTrue(state("hostileMobOwners").isEmpty());
+    }
+
+    @Test
+    void nativeVisibilityRangeOrPacificationRejectionDoesNotCreateAggro() {
+        Monster mob = nearbyMonster();
+        BodyMobBridge bridge = mockedMobBridge();
+        when(bridge.canAcquire(mob, body)).thenReturn(false);
+        aggro.run();
+        verify(mob, never()).setTarget(any());
+    }
+
+    @Test
+    void neutralMobDoesNotGetAngryWithoutAnExistingTarget() throws Exception {
+        Mob mob = nearbyTrackedMob("Wolf", null);
+        mockedMobBridge();
+        aggro.run();
+        assertNull(mob.getTarget());
+        verify(mob, never()).setTarget(any());
+    }
+
+    @Test
+    void goldArmorPreventsNewPiglinAggroButNotAlreadyEstablishedAggro() throws Exception {
+        Piglin piglin = (Piglin) nearbyTrackedMob("Piglin", null);
+        org.bukkit.inventory.EntityEquipment equipment = mock(org.bukkit.inventory.EntityEquipment.class);
+        ItemStack gold = mock(ItemStack.class);
+        when(gold.getType()).thenReturn(Material.GOLDEN_BOOTS);
+        when(equipment.getArmorContents()).thenReturn(new ItemStack[]{gold});
+        when(body.getEquipment()).thenReturn(equipment);
+        mockedMobBridge();
+        aggro.run();
+        assertNull(piglin.getTarget());
+        piglin.setTarget(player);
+        aggro.run();
+        assertSame(body, piglin.getTarget());
+    }
+
+    @Test
+    void piglinIsNotForcedHostileByReplacingItsNativePlayerSensor() throws Exception {
+        Piglin piglin = (Piglin) nearbyTrackedMob("Piglin", null);
+        org.bukkit.inventory.EntityEquipment equipment = mock(org.bukkit.inventory.EntityEquipment.class);
+        when(equipment.getArmorContents()).thenReturn(new ItemStack[0]);
+        when(body.getEquipment()).thenReturn(equipment);
+        mockedMobBridge();
+        aggro.run();
+        assertNull(piglin.getTarget());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Ghast", "Hoglin", "Wolf", "Bee", "IronGolem", "Enderman", "PigZombie", "Piglin"})
+    void existingMobTargetReturnsToOwnerOnNormalExit(String kind) throws Exception {
+        Mob mob = nearbyTrackedMob(kind, player);
+        mockedMobBridge();
+        aggro.run();
+        assertSame(body, mob.getTarget());
+        manager.stop(player, true, false);
+        assertSame(player, mob.getTarget());
+        var restorationOrder = inOrder(mob, body);
+        restorationOrder.verify(mob).setTarget(player);
+        restorationOrder.verify(body).remove();
+    }
+
+    @Test
+    void establishedMobAggroDoesNotStealAnotherPlayersTarget() throws Exception {
+        Mob mob = nearbyTrackedMob("Wolf", player);
+        BodyMobBridge bridge = mockedMobBridge();
+        when(bridge.retainsAnger(any(), any(), any())).thenReturn(true);
+        aggro.run();
+        Player other = mock(Player.class);
+        mob.setTarget(other);
+        aggro.run();
+        assertSame(other, mob.getTarget());
+        assertTrue(state("hostileMobOwners").isEmpty());
+    }
+
+    @Test
+    void cubeContactUsesNativeDamageAndStopsAfterSessionEnds() throws Exception {
+        AbstractCubeMob cube = (AbstractCubeMob) nearbyTrackedMob("Slime", null);
+        BodyMobBridge bridge = mockedMobBridge();
+        doAnswer(call -> { manager.stop(player, true, false); return null; }).when(bridge).contactDamage(cube, body);
+        environment.run();
+        verify(bridge).contactDamage(cube, body);
+        assertFalse(manager.isActive(player));
+    }
+
+    @Test
+    void cameraVibrationsAreBlockedButPhysicalBodyEventsRemain() {
+        GenericGameEvent ghost = mock(GenericGameEvent.class);
+        when(ghost.getEntity()).thenReturn(player);
+        listener.onCameraGameEvent(ghost);
+        verify(ghost).setCancelled(true);
+        GenericGameEvent physical = mock(GenericGameEvent.class);
+        when(physical.getEntity()).thenReturn(body);
+        listener.onCameraGameEvent(physical);
+        verify(physical, never()).setCancelled(anyBoolean());
     }
 
     @ParameterizedTest
@@ -1068,7 +1225,7 @@ class WaterRegressionTest {
         aggro.run();
         manager.stop(player, true, false);
         assertSame(player, spider.getTarget());
-        assertTrue(state("hostileSpiderOwners").isEmpty());
+        assertTrue(state("hostileMobOwners").isEmpty());
     }
 
     @Test
@@ -1077,7 +1234,7 @@ class WaterRegressionTest {
         aggro.run();
         manager.stopWithoutReturn(player, false);
         verify(spider, never()).setTarget(player);
-        assertTrue(state("hostileSpiderOwners").isEmpty());
+        assertTrue(state("hostileMobOwners").isEmpty());
     }
 
     @Test

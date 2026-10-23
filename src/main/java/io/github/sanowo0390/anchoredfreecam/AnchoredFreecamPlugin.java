@@ -12,12 +12,14 @@ public final class AnchoredFreecamPlugin extends JavaPlugin {
     private Messages messages;
     private CameraInventoryMask inventoryMask;
     private PetController pets;
+    private BodyMobBridge mobBridge;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         messages = new Messages(this);
         inventoryMask = CameraInventoryMask.forPaper(getLogger());
+        mobBridge = BodyMobBridge.forPaper(getLogger());
         manager = new FreecamManager(this, messages);
         pets = new PetController(this, manager::isActive, MyPetCompatibility.install(this, manager::isActive));
 
@@ -36,6 +38,10 @@ public final class AnchoredFreecamPlugin extends JavaPlugin {
 
     void maskCameraInventory(Player player) {
         if (inventoryMask != null) inventoryMask.mask(player);
+    }
+
+    BodyMobBridge mobBridge() {
+        return mobBridge;
     }
 
     void releaseCameraInventory(Player player) {

@@ -27,6 +27,7 @@ import org.bukkit.event.entity.EntityTeleportEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.event.world.EntitiesUnloadEvent;
+import org.bukkit.event.world.GenericGameEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -208,6 +209,11 @@ final class FreecamListener implements Listener {
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCameraGameEvent(GenericGameEvent event) {
+        if (event.getEntity() instanceof Player player && manager.isActive(player)) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPetTeleport(EntityTeleportEvent event) {
         if (plugin.pausePetIfOwnerFreecam(event.getEntity())) event.setCancelled(true);
     }
@@ -384,7 +390,7 @@ final class FreecamListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onTargetResult(EntityTargetLivingEntityEvent event) {
-        manager.rememberSpiderTarget(event.getEntity(), event.getTarget());
+        manager.rememberMobTarget(event.getEntity(), event.getTarget());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
