@@ -2,14 +2,14 @@ name: AnchoredFreecam
 version: '${version}'
 main: io.github.sanowo0390.anchoredfreecam.AnchoredFreecamPlugin
 api-version: '26.2'
-softdepend: [LuckPerms, MyPet]
+softdepend: [LuckPerms, MyPet, Towny]
 author: Sanowo0390
 description: Server-side anchored freecam for survival servers, with a damageable body proxy.
 website: https://github.com/Sanowo0390/Anchored-Freecam
 commands:
   freecam:
     description: AnchoredFreecam commands.
-    usage: /freecam [on|off|toggle|status|range|language|reload]
+    usage: /freecam [on|off|toggle|status|town|range|language|reload]
     aliases: [fc]
 permissions:
   anchoredfreecam.use:
@@ -24,6 +24,12 @@ permissions:
   anchoredfreecam.reload:
     description: Allows reloading AnchoredFreecam's configuration.
     default: op
+  anchoredfreecam.towny.bypass:
+    description: Allows the freecam camera to enter Towny towns without restriction.
+    default: false
+  anchoredfreecam.towny.manage:
+    description: Allows opening the Towny town protection menu (/freecam town). Towny Mayor/Assistant rank is still required.
+    default: true
   anchoredfreecam.admin:
     description: Grants all AnchoredFreecam permissions.
     default: op
@@ -32,3 +38,4 @@ permissions:
       anchoredfreecam.range: true
       anchoredfreecam.language: true
       anchoredfreecam.reload: true
+      anchoredfreecam.towny.bypass: true

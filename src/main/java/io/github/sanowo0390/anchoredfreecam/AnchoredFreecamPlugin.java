@@ -22,6 +22,7 @@ public final class AnchoredFreecamPlugin extends JavaPlugin {
         mobBridge = BodyMobBridge.forPaper(getLogger());
         manager = new FreecamManager(this, messages);
         pets = new PetController(this, manager::isActive, MyPetCompatibility.install(this, manager::isActive));
+        manager.initTowny();
 
         FreecamCommand freecamCommand = new FreecamCommand(this, manager, messages);
         PluginCommand command = getCommand("freecam");
@@ -32,6 +33,7 @@ public final class AnchoredFreecamPlugin extends JavaPlugin {
         command.setTabCompleter(freecamCommand);
 
         getServer().getPluginManager().registerEvents(new FreecamListener(this, manager), this);
+        getServer().getPluginManager().registerEvents(new TownMenuListener(), this);
         getLogger().info("AnchoredFreecam enabled. Max distance: " + manager.getMaxDistance()
                 + ", language: " + messages.language());
     }

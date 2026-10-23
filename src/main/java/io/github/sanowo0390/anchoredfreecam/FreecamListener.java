@@ -103,6 +103,13 @@ final class FreecamListener implements Listener {
             correctedWaterMove = true;
         }
 
+        if (manager.isTownyBlocked(player, to)) {
+            event.setCancelled(true);
+            manager.townyNotice(player);
+            manager.queueBoundaryReturn(player, to.getYaw(), to.getPitch());
+            return;
+        }
+
         double max = manager.getMaxDistance();
         if (to.distanceSquared(session.anchor()) <= max * max) {
             if (correctedWaterMove) {
@@ -154,6 +161,13 @@ final class FreecamListener implements Listener {
 
         // Cross-world teleports are finalized at MONITOR, after cancellation.
         if (to.getWorld() != session.anchor().getWorld()) {
+            return;
+        }
+
+        if (manager.isTownyBlocked(player, to)) {
+            event.setCancelled(true);
+            manager.townyNotice(player);
+            manager.queueBoundaryReturn(player, to.getYaw(), to.getPitch());
             return;
         }
 

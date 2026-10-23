@@ -202,6 +202,62 @@ class WaterRegressionTest {
         tasks.forEach(Runnable::run);
     }
 
+    private TownyGuard installTownyGuard() throws Exception {
+        TownyGuard guard = mock(TownyGuard.class);
+        Field towny = FreecamManager.class.getDeclaredField("towny");
+        towny.setAccessible(true);
+        towny.set(manager, guard);
+        Field resolved = FreecamManager.class.getDeclaredField("townyResolved");
+        resolved.setAccessible(true);
+        resolved.set(manager, true);
+        return guard;
+    }
+
+    @Test
+    void townyBoundaryRejectsMoveWithoutEndingFreecam() throws Exception {
+        TownyGuard guard = installTownyGuard();
+        when(guard.isBlocked(eq(player), any())).thenAnswer(call -> ((Location) call.getArgument(1)).getX() >= 1);
+        Location original = camera.clone();
+        PlayerMoveEvent event = new PlayerMoveEvent(player, original, camera.clone().add(2, 0, 0));
+        listener.onMove(event);
+        assertTrue(event.isCancelled());
+        runQueued();
+        assertEquals(original, camera);
+        assertTrue(manager.isActive(player));
+        verify(body, never()).remove();
+    }
+
+    @Test
+    void townyRechecksQueuedDestinationAfterProtectionChanges() throws Exception {
+        TownyGuard guard = installTownyGuard();
+        manager.queueCameraCorrection(player, camera.clone().add(2, 0, 0));
+        when(guard.isBlocked(eq(player), any())).thenAnswer(call -> ((Location) call.getArgument(1)).getX() >= 1);
+        runQueued();
+        assertEquals(bodyLocation, camera);
+        assertTrue(manager.isActive(player));
+    }
+
+    @Test
+    void newlyProtectedAnchorEndsFreecamAtPhysicalBody() throws Exception {
+        TownyGuard guard = installTownyGuard();
+        when(guard.isBlocked(eq(player), any())).thenReturn(true);
+        camera.add(4, 0, 0);
+        environment.run();
+        assertFalse(manager.isActive(player));
+        assertEquals(bodyLocation, camera);
+    }
+
+    @Test
+    void townyDoesNotCancelExternalTeleportThatEndsFreecam() throws Exception {
+        TownyGuard guard = installTownyGuard();
+        when(guard.isBlocked(eq(player), any())).thenReturn(true);
+        PlayerTeleportEvent event = teleport(camera.clone().add(8, 0, 0), PlayerTeleportEvent.TeleportCause.COMMAND);
+        listener.onTeleport(event);
+        listener.onTeleportResult(event);
+        assertFalse(event.isCancelled());
+        assertFalse(manager.isActive(player));
+    }
+
     @ParameterizedTest
     @ValueSource(doubles = {0.04, -0.08, 0.3})
     void passiveWaterMovementUsesOwnedCorrection(double lift) {
