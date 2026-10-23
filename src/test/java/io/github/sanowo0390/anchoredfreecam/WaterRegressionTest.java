@@ -867,6 +867,58 @@ class WaterRegressionTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"IronGolem", "Wolf", "Bee"})
+    void startTransfersExistingTargetBeforeCameraBecomesUnattackable(String kind) throws Exception {
+        manager.stopWithoutReturn(player, false);
+        Mob mob = nearbyTrackedMob(kind, player);
+        var target = new java.util.concurrent.atomic.AtomicReference<LivingEntity>(player);
+        var invulnerable = new java.util.concurrent.atomic.AtomicBoolean();
+        when(player.isInvulnerable()).thenAnswer(call -> invulnerable.get());
+        doAnswer(call -> { invulnerable.set(call.getArgument(0)); return null; }).when(player).setInvulnerable(anyBoolean());
+        // Paper Mob.getTarget() filters a Player once camera protection makes
+        // that Player invulnerable, even though its unchecked field still points there.
+        when(mob.getTarget()).thenAnswer(call -> target.get() == player && invulnerable.get() ? null : target.get());
+        doAnswer(call -> { target.set(call.getArgument(0)); return null; }).when(mob).setTarget(any());
+        when(player.getWorld()).thenReturn(world);
+        when(world.spawn(any(Location.class), eq(Mannequin.class), org.mockito.ArgumentMatchers.<java.util.function.Consumer<Mannequin>>any())).thenReturn(body);
+        when(messages.text(eq("freecam-enabled"), eq("range"), anyString())).thenReturn("on");
+        assertTrue(manager.start(player));
+        assertTrue(invulnerable.get(), "Camera must still be protected");
+        assertSame(body, mob.getTarget(), "Transfer must happen before Player target filtering");
+        assertEquals(player.getUniqueId(), state("hostileMobOwners").get(mob.getUniqueId()));
+    }
+
+    @Test
+    void untrackedGolemWithNativeAngerCanAcquireBody() throws Exception {
+        Mob golem = nearbyTrackedMob("IronGolem", null);
+        BodyMobBridge bridge = mockedMobBridge();
+        when(bridge.retainsAnger(golem, player.getUniqueId(), body.getUniqueId())).thenReturn(true);
+        assertTrue(state("hostileMobOwners").isEmpty());
+        aggro.run();
+        assertSame(body, golem.getTarget());
+    }
+
+    @Test
+    void neutralUntrackedGolemDoesNotAcquireBody() throws Exception {
+        Mob golem = nearbyTrackedMob("IronGolem", null);
+        mockedMobBridge();
+        aggro.run();
+        assertNull(golem.getTarget());
+        verify(golem, never()).setTarget(any());
+    }
+
+    @Test
+    void untrackedAngryGolemDoesNotLoseAnotherTargetsPriority() throws Exception {
+        Player other = mock(Player.class);
+        Mob golem = nearbyTrackedMob("IronGolem", other);
+        BodyMobBridge bridge = mockedMobBridge();
+        when(bridge.retainsAnger(golem, player.getUniqueId(), body.getUniqueId())).thenReturn(true);
+        aggro.run();
+        assertSame(other, golem.getTarget());
+        verify(golem, never()).setTarget(any());
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"Ghast", "Slime", "MagmaCube", "Shulker", "Hoglin", "CaveSpider"})
     void nonMonsterEnemiesAcquireAndReacquireBody(String kind) throws Exception {
         Mob mob = nearbyTrackedMob(kind, null);

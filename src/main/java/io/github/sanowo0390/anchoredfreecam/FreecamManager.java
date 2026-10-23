@@ -286,6 +286,13 @@ final class FreecamManager {
             bodyOwners.put(bodyUuid, player.getUniqueId());
         }
 
+        // Paper Mob.getTarget() filters unattackable Players. Transfer existing
+        // hostility while the owner is still physical, before camera protection
+        // makes that getter return null (notably for neutral iron golems).
+        if (body != null) {
+            retargetCurrentEnemies(player, body);
+        }
+
         if (player.isGliding()) {
             player.setGliding(false);
         }
@@ -315,10 +322,6 @@ final class FreecamManager {
 
         applyCameraVisibility(player);
         hideCameraEquipment(player);
-
-        if (body != null) {
-            retargetCurrentEnemies(player, body);
-        }
 
         trace(player, "start");
 
@@ -1066,8 +1069,11 @@ final class FreecamManager {
                 // If the mob was already targeting the real camera Player, always
                 // redirect it to the body, even for normally neutral monsters.
                 boolean remembered = player.getUniqueId().equals(hostileMobOwners.get(monster.getUniqueId()));
-                boolean retainsAnger = remembered && (monster instanceof Spider
-                        || (plugin.mobBridge() != null && plugin.mobBridge().retainsAnger(monster, player.getUniqueId(), session.bodyUuid())));
+                // Native anger already identifies this owner/body. It remains
+                // authoritative even if the target was lost before our first
+                // observation, or this mob has just re-entered the scan radius.
+                boolean retainsAnger = (remembered && monster instanceof Spider)
+                        || (plugin.mobBridge() != null && plugin.mobBridge().retainsAnger(monster, player.getUniqueId(), session.bodyUuid()));
                 boolean acquire = supportsBodyAggro(monster) && shouldForceTargetBody(monster)
                         && canAcquireBody(monster, body);
                 if (target == player || retainsAnger || acquire) {
