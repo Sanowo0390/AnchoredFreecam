@@ -28,7 +28,7 @@ permissions:
     description: Allows the freecam camera to enter Towny towns without restriction.
     default: false
   anchoredfreecam.towny.manage:
-    description: Allows opening the Towny town protection menu (/freecam town). Towny Mayor/Assistant rank is still required.
+    description: Allows toggling the protection of the player's own Towny town (/freecam town). Towny Mayor/Assistant rank is still required.
     default: true
   anchoredfreecam.admin:
     description: Grants all AnchoredFreecam permissions.
