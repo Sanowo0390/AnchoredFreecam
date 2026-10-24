@@ -14,9 +14,18 @@ public final class AnchoredFreecamPlugin extends JavaPlugin {
     private PetController pets;
     private BodyMobBridge mobBridge;
 
+    private void updateConfigDefaults() {
+        int added = YamlDefaults.merge(getConfig(), YamlDefaults.load(getResource("config.yml")));
+        if (added > 0) {
+            saveConfig();
+            getLogger().info("Added " + added + " missing option(s) to config.yml.");
+        }
+    }
+
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        updateConfigDefaults();
         messages = new Messages(this);
         inventoryMask = CameraInventoryMask.forPaper(getLogger());
         mobBridge = BodyMobBridge.forPaper(getLogger());

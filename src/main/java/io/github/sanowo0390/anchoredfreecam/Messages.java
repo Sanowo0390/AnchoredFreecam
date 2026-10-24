@@ -3,6 +3,7 @@ package io.github.sanowo0390.anchoredfreecam;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -14,10 +15,14 @@ final class Messages {
     private final AnchoredFreecamPlugin plugin;
     private final File langDirectory;
     private final Map<String, YamlConfiguration> cache = new HashMap<>();
+    private final Map<String, YamlConfiguration> bundledCache = new HashMap<>();
 
     Messages(AnchoredFreecamPlugin plugin) {
         this.plugin = plugin;
         this.langDirectory = new File(plugin.getDataFolder(), "lang");
+        ensureDefaultLanguageFiles();
+        mergeMissingKeys("ja");
+        mergeMissingKeys("en");
         reload();
     }
 
@@ -108,6 +113,15 @@ final class Messages {
             value = config(fallback).getString(key);
         }
         if (value == null) {
+            value = bundled(current).getString(key);
+        }
+        if (value == null && !fallback.equals(current)) {
+            value = bundled(fallback).getString(key);
+        }
+        if (value == null) {
+            value = bundled("ja").getString(key);
+        }
+        if (value == null) {
             value = key;
         }
 
@@ -115,6 +129,29 @@ final class Messages {
             value = value.replace("{" + replacements[i] + "}", replacements[i + 1]);
         }
         return value;
+    }
+
+    private void mergeMissingKeys(String language) {
+        File target = languageFile(language);
+        if (!target.isFile()) {
+            return;
+        }
+        YamlConfiguration current = YamlConfiguration.loadConfiguration(target);
+        int added = YamlDefaults.merge(current, bundled(language));
+        if (added == 0) {
+            return;
+        }
+        try {
+            current.save(target);
+            plugin.getLogger().info("Added " + added + " missing message(s) to lang/" + language + ".yml.");
+        } catch (IOException ex) {
+            plugin.getLogger().warning("Could not update lang/" + language + ".yml: " + ex.getMessage());
+        }
+    }
+
+    private YamlConfiguration bundled(String language) {
+        return bundledCache.computeIfAbsent(language, id ->
+                YamlDefaults.load(plugin.getResource("lang/" + id + ".yml")));
     }
 
     private YamlConfiguration config(String language) {
