@@ -160,24 +160,7 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
                 noPermission(player);
                 return true;
             }
-            if (args.length >= 2) {
-                switch (args[1].toLowerCase(Locale.ROOT)) {
-                    case "on" -> manager.setTownProtection(player, true);
-                    case "off" -> manager.setTownProtection(player, false);
-                    case "status" -> manager.showTownProtection(player);
-                    default -> player.sendMessage(Component.text(
-                            messages.text("town-usage", "label", label),
-                            NamedTextColor.YELLOW));
-                }
-                return true;
-            }
-            if (manager.isActive(player)) {
-                player.sendMessage(Component.text(
-                        messages.text("towny-menu-in-freecam"),
-                        NamedTextColor.RED));
-                return true;
-            }
-            manager.openTownMenu(player);
+            manager.toggleTownProtection(player);
             return true;
         }
 
@@ -255,15 +238,6 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
 
             String prefix = args[0].toLowerCase(Locale.ROOT);
             return candidates.stream()
-                    .filter(value -> value.startsWith(prefix))
-                    .toList();
-        }
-
-        if (args.length == 2
-                && args[0].equalsIgnoreCase("town")
-                && sender.hasPermission("anchoredfreecam.towny.manage")) {
-            String prefix = args[1].toLowerCase(Locale.ROOT);
-            return List.of("on", "off", "status").stream()
                     .filter(value -> value.startsWith(prefix))
                     .toList();
         }

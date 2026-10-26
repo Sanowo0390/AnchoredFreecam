@@ -190,39 +190,18 @@ final class FreecamManager {
         return town;
     }
 
-    void openTownMenu(Player player) {
-        TownyGuard guard = townyGuard();
-        TownyGuard.TownRef town = manageableTown(player, guard);
-        if (town != null) {
-            new TownSettingsMenu(guard, messages, this, town).open(player);
-        }
-    }
-
-    void setTownProtection(Player player, boolean enabled) {
+    void toggleTownProtection(Player player) {
         TownyGuard guard = townyGuard();
         TownyGuard.TownRef town = manageableTown(player, guard);
         if (town == null) {
             return;
         }
+        boolean enabled = !guard.isTownProtected(town.id());
         guard.setTownProtected(town.id(), enabled);
         player.sendMessage(message(
-                messages.text(enabled ? "town-menu-changed-on" : "town-menu-changed-off", "town", town.name()),
+                messages.text(enabled ? "town-changed-on" : "town-changed-off", "town", town.name()),
                 enabled ? NamedTextColor.GREEN : NamedTextColor.YELLOW));
         enforceCurrentRange();
-    }
-
-    void showTownProtection(Player player) {
-        TownyGuard guard = townyGuard();
-        TownyGuard.TownRef town = manageableTown(player, guard);
-        if (town == null) {
-            return;
-        }
-        boolean enabled = guard.isTownProtected(town.id());
-        player.sendMessage(message(
-                messages.text("town-status",
-                        "town", town.name(),
-                        "state", messages.text(enabled ? "state-on" : "state-off")),
-                enabled ? NamedTextColor.GREEN : NamedTextColor.GRAY));
     }
 
     double getMaxDistance() {
